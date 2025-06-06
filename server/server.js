@@ -13,9 +13,19 @@ const GameEngine = require("./game-engine")
 
 class MafiaGameServer {
   constructor() {
+    console.log("🏗️ Создание экземпляра MafiaGameServer...")
+
     this.app = express()
     this.server = http.createServer(this.app)
-    this.wss = new WebSocket.Server({ server: this.server })
+
+    console.log("🔌 Создание WebSocket сервера...")
+    this.wss = new WebSocket.Server({
+      server: this.server,
+      verifyClient: (info) => {
+        console.log(`🔍 WebSocket verifyClient - Origin: ${info.origin}, IP: ${info.req.socket.remoteAddress}`)
+        return true
+      },
+    })
 
     this.db = new Database()
     this.gameEngine = new GameEngine()
@@ -33,6 +43,8 @@ class MafiaGameServer {
 
     // Пинг для Render каждые 5 минут
     this.setupRenderKeepAlive()
+
+    console.log("✅ MafiaGameServer создан")
   }
 
   setupRenderKeepAlive() {
@@ -61,6 +73,8 @@ class MafiaGameServer {
   }
 
   setupMiddleware() {
+    console.log("🔧 Настройка middleware...")
+
     // CORS
     this.app.use(
       cors({
@@ -84,26 +98,47 @@ class MafiaGameServer {
       fs.mkdirSync(uploadsDir, { recursive: true })
     }
 
-    // Логирование
+    // МАКСИМАЛЬНОЕ логирование всех запросов
     this.app.use((req, res, next) => {
       const startTime = Date.now()
-      console.log(`📥 ${new Date().toISOString()} - ${req.method} ${req.path} - IP: ${req.ip}`)
+      const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress
+
+      console.log("=" * 80)
+      console.log(`📥 ВХОДЯЩИЙ ЗАПРОС`)
+      console.log(`📅 Время: ${new Date().toISOString()}`)
+      console.log(`🌐 Метод: ${req.method}`)
+      console.log(`🔗 URL: ${req.url}`)
+      console.log(`📍 Path: ${req.path}`)
+      console.log(`🏠 IP: ${clientIP}`)
+      console.log(`🔧 User-Agent: ${req.get("User-Agent")}`)
+      console.log(`🔑 Headers:`, JSON.stringify(req.headers, null, 2))
+
+      if (req.body && Object.keys(req.body).length > 0) {
+        console.log(`📦 Body:`, JSON.stringify(req.body, null, 2))
+      }
+
+      console.log("=" * 80)
 
       res.on("finish", () => {
         const duration = Date.now() - startTime
-        console.log(`📤 ${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`)
+        console.log(`📤 ОТВЕТ: ${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`)
       })
 
       next()
     })
+
+    console.log("✅ Middleware настроен")
   }
 
   setupRoutes() {
+    console.log("🛣️ Настройка маршрутов...")
+
     // API маршруты
     this.app.use("/api", this.createApiRoutes())
 
     // Главная страница
     this.app.get("/", (req, res) => {
+      console.log("🏠 Запрос главной страницы")
       res.json({
         name: "🎭 Mafia Game Server",
         version: "2.0.0",
@@ -119,17 +154,21 @@ class MafiaGameServer {
 
     // Админ панель
     this.app.get("/admin", (req, res) => {
+      console.log("👑 Запрос админ панели")
       res.send(this.generateAdminPage())
     })
 
     // Здоровье сервера для Render
     this.app.get("/health", (req, res) => {
+      console.log("🏥 Health check запрос")
       res.json({
         status: "healthy",
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
       })
     })
+
+    console.log("✅ Маршруты настроены")
   }
 
   createApiRoutes() {
@@ -255,8 +294,11 @@ class MafiaGameServer {
   }
 
   setupErrorHandling() {
+    console.log("🚨 Настройка обработки ошибок...")
+
     // 404 обработчик
     this.app.use((req, res) => {
+      console.log(`❌ 404 - Маршрут не найден: ${req.method} ${req.path}`)
       res.status(404).json({
         error: "Маршрут не найден",
         path: req.path,
@@ -266,12 +308,15 @@ class MafiaGameServer {
 
     // Глобальный обработчик ошибок
     this.app.use((error, req, res, next) => {
-      console.error("Необработанная ошибка:", error)
+      console.error("❌ ГЛОБАЛЬНАЯ ОШИБКА:", error)
+      console.error("Stack trace:", error.stack)
       res.status(500).json({
         error: "Внутренняя ошибка сервера",
         message: process.env.NODE_ENV === "development" ? error.message : undefined,
       })
     })
+
+    console.log("✅ Обработка ошибок настроена")
   }
 
   generateAdminPage() {
@@ -338,9 +383,6 @@ class MafiaGameServer {
             color: #00ff00; 
             padding: 20px; 
             border-radius: 8px; 
-            font-family: 'Courier New
-            padding: 20px;
-            border-radius: 8px;
             font-family: 'Courier New', monospace;
             max-height: 400px;
             overflow-y: auto;
@@ -562,10 +604,13 @@ class MafiaGameServer {
 
   async start() {
     try {
-      console.log("🚀 Запуск Mafia Game Server...")
+      console.log("🚀 ЗАПУСК MAFIA GAME SERVER...")
+      console.log("=" * 100)
       console.log(`🌍 NODE_ENV: ${process.env.NODE_ENV}`)
       console.log(`🔌 PORT: ${this.port}`)
       console.log(`💾 DB Path: ${this.db.dbPath}`)
+      console.log(`🕐 Время запуска: ${new Date().toISOString()}`)
+      console.log("=" * 100)
 
       // Инициализируем базу данных
       console.log("💾 Инициализация базы данных...")
@@ -574,15 +619,28 @@ class MafiaGameServer {
 
       // Запускаем сервер
       console.log(`🚀 Запуск HTTP сервера на порту ${this.port}...`)
-      this.server.listen(this.port, () => {
-        console.log("=" * 50)
-        console.log(`🚀 Mafia Game Server запущен на порту ${this.port}`)
+
+      this.server.on("listening", () => {
+        console.log("🎉 HTTP СЕРВЕР ЗАПУЩЕН!")
+        console.log("=" * 100)
+        console.log(`🚀 Mafia Game Server работает на порту ${this.port}`)
         console.log(`👑 Великий бог Anubis правит сервером!`)
         console.log(`📊 Админ панель: http://localhost:${this.port}/admin`)
         console.log(`🔌 WebSocket: ws://localhost:${this.port}`)
         console.log(`🌐 API: http://localhost:${this.port}/api`)
         console.log(`🏥 Health: http://localhost:${this.port}/health`)
-        console.log("=" * 50)
+        console.log("=" * 100)
+      })
+
+      this.server.on("error", (error) => {
+        console.error("❌ ОШИБКА HTTP СЕРВЕРА:", error)
+        if (error.code === "EADDRINUSE") {
+          console.error(`❌ Порт ${this.port} уже используется!`)
+        }
+      })
+
+      this.server.listen(this.port, "0.0.0.0", () => {
+        console.log(`🎯 Сервер слушает на 0.0.0.0:${this.port}`)
       })
 
       // Обработка сигналов завершения
@@ -594,6 +652,14 @@ class MafiaGameServer {
         console.log("🛑 Получен сигнал SIGINT")
         this.shutdown()
       })
+
+      // Логируем каждые 30 секунд статистику
+      setInterval(() => {
+        const stats = this.wsHandler.getStats()
+        console.log(
+          `📊 СТАТИСТИКА: Подключений: ${stats.connectedUsers}, Комнат: ${stats.activeRooms}, Время работы: ${Math.floor(process.uptime())}с`,
+        )
+      }, 30000)
     } catch (error) {
       console.error("❌ КРИТИЧЕСКАЯ ОШИБКА запуска сервера:", error)
       console.error("Stack trace:", error.stack)
@@ -606,14 +672,17 @@ class MafiaGameServer {
 
     try {
       // Закрываем WebSocket соединения
+      console.log("🔌 Закрытие WebSocket соединений...")
       this.wss.clients.forEach((client) => {
         client.close()
       })
 
       // Закрываем HTTP сервер
+      console.log("🌐 Закрытие HTTP сервера...")
       this.server.close()
 
       // Закрываем базу данных
+      console.log("💾 Закрытие базы данных...")
       await this.db.close()
 
       console.log("✅ Сервер успешно завершил работу")
@@ -627,6 +696,7 @@ class MafiaGameServer {
 
 // Запуск сервера
 if (require.main === module) {
+  console.log("🎬 СТАРТ ПРИЛОЖЕНИЯ")
   const server = new MafiaGameServer()
   server.start()
 }

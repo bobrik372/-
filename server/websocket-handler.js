@@ -3,6 +3,8 @@ const { v4: uuidv4 } = require("uuid")
 
 class WebSocketHandler {
   constructor(wss, database, gameEngine) {
+    console.log("🔌 Создание WebSocketHandler...")
+
     this.wss = wss
     this.db = database
     this.gameEngine = gameEngine
@@ -11,20 +13,32 @@ class WebSocketHandler {
     this.usersByNickname = new Map() // nickname -> ws
 
     this.setupWebSocket()
+
+    console.log("✅ WebSocketHandler создан")
   }
 
   setupWebSocket() {
     console.log("🔌 Настройка WebSocket сервера...")
 
     this.wss.on("connection", (ws, req) => {
-      const clientIP = req.socket.remoteAddress
-      console.log(`🔌 Новое WebSocket соединение от ${clientIP}`)
+      const clientIP = req.socket.remoteAddress || req.connection.remoteAddress
+      const userAgent = req.headers["user-agent"]
+      const origin = req.headers.origin
+
+      console.log("🎉 НОВОЕ WEBSOCKET ПОДКЛЮЧЕНИЕ!")
+      console.log("=" * 80)
+      console.log(`🌐 IP: ${clientIP}`)
+      console.log(`🔧 User-Agent: ${userAgent}`)
+      console.log(`🏠 Origin: ${origin}`)
       console.log(`📊 Всего подключений: ${this.wss.clients.size}`)
+      console.log(`🕐 Время: ${new Date().toISOString()}`)
+      console.log("=" * 80)
 
       ws.on("message", async (message) => {
         try {
+          console.log(`📨 RAW MESSAGE от ${clientIP}:`, message.toString())
           const data = JSON.parse(message)
-          console.log(`📨 Получено сообщение от ${clientIP}: ${data.type}`, data)
+          console.log(`📨 PARSED MESSAGE от ${clientIP}:`, JSON.stringify(data, null, 2))
           await this.handleMessage(ws, data)
         } catch (error) {
           console.error(`❌ Ошибка обработки сообщения от ${clientIP}:`, error)
@@ -34,7 +48,8 @@ class WebSocketHandler {
       })
 
       ws.on("close", (code, reason) => {
-        console.log(`🔌 WebSocket соединение закрыто: код ${code}, причина: ${reason}`)
+        console.log(`🔌 WebSocket соединение закрыто от ${clientIP}`)
+        console.log(`📊 Код: ${code}, Причина: ${reason}`)
         console.log(`📊 Осталось подключений: ${this.wss.clients.size - 1}`)
         this.handleDisconnect(ws)
       })
@@ -43,12 +58,33 @@ class WebSocketHandler {
         console.error(`❌ WebSocket ошибка от ${clientIP}:`, error)
       })
 
+      ws.on("pong", () => {
+        console.log(`🏓 Pong получен от ${clientIP}`)
+      })
+
       // Отправляем приветствие
-      this.send(ws, {
+      const welcomeMessage = {
         type: "connected",
         message: "Добро пожаловать в Mafia Game!",
-      })
-      console.log(`✅ Приветствие отправлено клиенту ${clientIP}`)
+        serverTime: new Date().toISOString(),
+      }
+
+      this.send(ws, welcomeMessage)
+      console.log(`✅ Приветствие отправлено клиенту ${clientIP}:`, welcomeMessage)
+
+      // Отправляем ping каждые 30 секунд
+      const pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          console.log(`🏓 Отправка ping клиенту ${clientIP}`)
+          ws.ping()
+        } else {
+          clearInterval(pingInterval)
+        }
+      }, 30000)
+    })
+
+    this.wss.on("error", (error) => {
+      console.error("❌ ОШИБКА WEBSOCKET СЕРВЕРА:", error)
     })
 
     console.log("✅ WebSocket сервер настроен")
@@ -58,7 +94,8 @@ class WebSocketHandler {
     const user = this.users.get(ws)
     const userInfo = user ? `${user.nickname} (${user.isAuthenticated ? "auth" : "unauth"})` : "unknown"
 
-    console.log(`📨 Обработка сообщения ${data.type} от ${userInfo}`)
+    console.log(`📨 ОБРАБОТКА СООБЩЕНИЯ ${data.type} от ${userInfo}`)
+    console.log(`📦 Данные:`, JSON.stringify(data, null, 2))
 
     try {
       switch (data.type) {
@@ -71,62 +108,80 @@ class WebSocketHandler {
           await this.handleLogin(ws, data)
           break
         case "getRooms":
+          console.log(`🏠 Запрос списка комнат от ${userInfo}`)
           await this.sendRoomsList(ws)
           break
         case "createRoom":
+          console.log(`🏗️ Создание комнаты от ${userInfo}`)
           await this.createRoom(ws, data.room)
           break
         case "joinRoom":
+          console.log(`🚪 Присоединение к комнате ${data.roomId} от ${userInfo}`)
           await this.joinRoom(ws, data.roomId, data.password)
           break
         case "leaveRoom":
+          console.log(`🚪 Выход из комнаты от ${userInfo}`)
           await this.leaveRoom(ws)
           break
         case "chatMessage":
+          console.log(`💬 Сообщение в чат от ${userInfo}: ${data.message}`)
           await this.handleChatMessage(ws, data)
           break
         case "gameAction":
+          console.log(`🎮 Игровое действие от ${userInfo}`)
           await this.handleGameAction(ws, data)
           break
         case "updateAvatar":
+          console.log(`🎭 Обновление аватара от ${userInfo}`)
           await this.updateAvatar(ws, data.avatar)
           break
         case "buyEffect":
+          console.log(`💰 Покупка эффекта ${data.effect} от ${userInfo}`)
           await this.buyEffect(ws, data.effect)
           break
         case "adminAction":
+          console.log(`👑 Админское действие от ${userInfo}`)
           await this.handleAdminAction(ws, data)
           break
         case "ping":
-          this.send(ws, { type: "pong" })
+          console.log(`🏓 Ping от ${userInfo}`)
+          this.send(ws, { type: "pong", timestamp: new Date().toISOString() })
           break
         case "getStats":
+          console.log(`📊 Запрос статистики от ${userInfo}`)
           await this.sendLobbyStats(ws)
           break
         case "rejoinRoom":
+          console.log(`🔄 Переподключение к комнате ${data.roomId} от ${userInfo}`)
           await this.rejoinRoom(ws, data.roomId)
           break
         case "addBot":
+          console.log(`🤖 Добавление бота от ${userInfo}`)
           await this.addBot(ws, data)
           break
         case "removeBot":
+          console.log(`🗑️ Удаление бота от ${userInfo}`)
           await this.removeBot(ws, data)
           break
         case "forceEndGame":
+          console.log(`⚡ Принудительное завершение игры от ${userInfo}`)
           await this.forceEndGame(ws, data)
           break
         case "sendAnnouncement":
+          console.log(`📢 Отправка объявления от ${userInfo}`)
           await this.sendAnnouncement(ws, data)
           break
         case "getLogs":
+          console.log(`📋 Запрос логов от ${userInfo}`)
           await this.sendLogs(ws)
           break
         default:
-          console.log("❌ Неизвестный тип сообщения:", data.type, "Данные:", data)
+          console.log("❌ НЕИЗВЕСТНЫЙ ТИП СООБЩЕНИЯ:", data.type)
+          console.log("Данные:", JSON.stringify(data, null, 2))
           this.sendError(ws, `Неизвестный тип сообщения: ${data.type}`)
       }
     } catch (error) {
-      console.error(`❌ Ошибка обработки ${data.type} от ${userInfo}:`, error)
+      console.error(`❌ ОШИБКА ОБРАБОТКИ ${data.type} от ${userInfo}:`, error)
       console.error("Stack trace:", error.stack)
       this.sendError(ws, "Ошибка обработки сообщения: " + error.message)
     }
@@ -154,6 +209,8 @@ class WebSocketHandler {
         type: "registerSuccess",
         message: "Регистрация успешна! Теперь войдите в систему.",
       })
+
+      console.log(`✅ Пользователь ${nickname} успешно зарегистрирован`)
     } catch (error) {
       console.error("Ошибка регистрации:", error)
       this.sendError(ws, error.message)
@@ -177,6 +234,7 @@ class WebSocketHandler {
       // Отключаем предыдущее соединение если есть
       const existingWs = this.usersByNickname.get(nickname)
       if (existingWs && existingWs !== ws) {
+        console.log(`🔄 Отключение предыдущего соединения для ${nickname}`)
         this.send(existingWs, {
           type: "kicked",
           reason: "Вход с другого устройства",
@@ -192,7 +250,7 @@ class WebSocketHandler {
       })
       this.usersByNickname.set(nickname, ws)
 
-      this.send(ws, {
+      const loginResponse = {
         type: "loginSuccess",
         user: {
           nickname: user.nickname,
@@ -204,9 +262,12 @@ class WebSocketHandler {
           games_survived: user.games_survived,
           is_admin: user.is_admin,
         },
-      })
+      }
+
+      this.send(ws, loginResponse)
 
       console.log(`✅ Пользователь авторизован: ${nickname}`)
+      console.log(`📊 Всего авторизованных: ${Array.from(this.users.values()).filter((u) => u.isAuthenticated).length}`)
     } catch (error) {
       console.error("Ошибка входа:", error)
       this.sendError(ws, "Ошибка входа в систему")
@@ -236,6 +297,8 @@ class WebSocketHandler {
         type: "rooms",
         rooms: roomsList,
       })
+
+      console.log(`📋 Отправлен список комнат: ${roomsList.length} комнат`)
     } catch (error) {
       console.error("Ошибка получения комнат:", error)
       this.sendError(ws, "Ошибка получения списка комнат")
@@ -299,7 +362,7 @@ class WebSocketHandler {
 
       await this.broadcastRoomsList()
 
-      console.log(`🏠 Комната создана: ${roomData.name} (${roomId})`)
+      console.log(`🏠 Комната создана: ${roomData.name} (${roomId}) пользователем ${user.nickname}`)
     } catch (error) {
       console.error("Ошибка создания комнаты:", error)
       this.sendError(ws, "Ошибка создания комнаты")
@@ -400,11 +463,13 @@ class WebSocketHandler {
     if (room.players.length === 0) {
       this.rooms.delete(roomId)
       await this.db.deleteRoom(roomId)
+      console.log(`🗑️ Комната ${room.name} удалена (пустая)`)
     } else {
       // Если создатель ушёл, назначаем нового
       if (room.creator === user.nickname && room.players.length > 0) {
         room.creator = room.players[0].nickname
         room.players[0].isCreator = true
+        console.log(`👑 Новый создатель комнаты: ${room.creator}`)
       }
 
       this.broadcastToRoom(roomId, {
@@ -455,6 +520,8 @@ class WebSocketHandler {
       type: "chatMessage",
       ...message,
     })
+
+    console.log(`💬 Сообщение в комнате ${room.name}: ${user.nickname}: ${data.message}`)
   }
 
   async handleGameAction(ws, data) {
@@ -609,10 +676,14 @@ class WebSocketHandler {
 
   handleDisconnect(ws) {
     const user = this.users.get(ws)
-    if (!user) return
+    if (!user) {
+      console.log("👋 Отключился неизвестный пользователь")
+      return
+    }
 
     // Покидаем комнату если были в ней
     if (user.currentRoom) {
+      console.log(`🚪 ${user.nickname} покидает комнату при отключении`)
       this.leaveRoom(ws)
     }
 
@@ -623,19 +694,22 @@ class WebSocketHandler {
     }
 
     console.log(`👋 Пользователь отключился: ${user.nickname || "Неизвестный"}`)
+    console.log(`📊 Осталось пользователей: ${this.users.size}`)
   }
 
   // Вспомогательные методы
   send(ws, data) {
     if (ws.readyState === WebSocket.OPEN) {
-      console.log(`📤 Отправка ${data.type} клиенту`)
-      ws.send(JSON.stringify(data))
+      const message = JSON.stringify(data)
+      console.log(`📤 Отправка ${data.type} клиенту (${message.length} байт)`)
+      ws.send(message)
     } else {
       console.log(`❌ Попытка отправки ${data.type} клиенту с закрытым соединением (readyState: ${ws.readyState})`)
     }
   }
 
   sendError(ws, message) {
+    console.log(`❌ Отправка ошибки клиенту: ${message}`)
     this.send(ws, {
       type: "error",
       message: message,
@@ -646,11 +720,15 @@ class WebSocketHandler {
     const room = this.rooms.get(roomId)
     if (!room) return
 
+    let sentCount = 0
     for (const [ws, user] of this.users.entries()) {
       if (user.currentRoom === roomId) {
         this.send(ws, message)
+        sentCount++
       }
     }
+
+    console.log(`📡 Broadcast в комнату ${room.name}: ${message.type} отправлен ${sentCount} пользователям`)
   }
 
   async broadcastRoomsList() {
@@ -671,14 +749,18 @@ class WebSocketHandler {
       })
     }
 
+    let sentCount = 0
     for (const [ws, user] of this.users.entries()) {
       if (user.isAuthenticated && !user.currentRoom) {
         this.send(ws, {
           type: "rooms",
           rooms: roomsList,
         })
+        sentCount++
       }
     }
+
+    console.log(`📡 Список комнат отправлен ${sentCount} пользователям`)
   }
 
   sanitizeRoomForClient(room, userNickname = null) {
