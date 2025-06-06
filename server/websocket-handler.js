@@ -14,26 +14,33 @@ class WebSocketHandler {
   }
 
   setupWebSocket() {
-    this.wss.on("connection", (ws) => {
-      console.log("🔌 Новое WebSocket соединение")
+    console.log("🔌 Настройка WebSocket сервера...")
+
+    this.wss.on("connection", (ws, req) => {
+      const clientIP = req.socket.remoteAddress
+      console.log(`🔌 Новое WebSocket соединение от ${clientIP}`)
+      console.log(`📊 Всего подключений: ${this.wss.clients.size}`)
 
       ws.on("message", async (message) => {
         try {
           const data = JSON.parse(message)
+          console.log(`📨 Получено сообщение от ${clientIP}: ${data.type}`, data)
           await this.handleMessage(ws, data)
         } catch (error) {
-          console.error("❌ Ошибка обработки сообщения:", error)
+          console.error(`❌ Ошибка обработки сообщения от ${clientIP}:`, error)
+          console.error("Сырое сообщение:", message.toString())
           this.sendError(ws, "Неверный формат сообщения")
         }
       })
 
-      ws.on("close", () => {
-        console.log("🔌 WebSocket соединение закрыто")
+      ws.on("close", (code, reason) => {
+        console.log(`🔌 WebSocket соединение закрыто: код ${code}, причина: ${reason}`)
+        console.log(`📊 Осталось подключений: ${this.wss.clients.size - 1}`)
         this.handleDisconnect(ws)
       })
 
       ws.on("error", (error) => {
-        console.error("❌ WebSocket ошибка:", error)
+        console.error(`❌ WebSocket ошибка от ${clientIP}:`, error)
       })
 
       // Отправляем приветствие
@@ -41,18 +48,26 @@ class WebSocketHandler {
         type: "connected",
         message: "Добро пожаловать в Mafia Game!",
       })
+      console.log(`✅ Приветствие отправлено клиенту ${clientIP}`)
     })
+
+    console.log("✅ WebSocket сервер настроен")
   }
 
   async handleMessage(ws, data) {
-    console.log("📨 Получено сообщение:", data.type, data)
+    const user = this.users.get(ws)
+    const userInfo = user ? `${user.nickname} (${user.isAuthenticated ? "auth" : "unauth"})` : "unknown"
+
+    console.log(`📨 Обработка сообщения ${data.type} от ${userInfo}`)
 
     try {
       switch (data.type) {
         case "register":
+          console.log(`👤 Попытка регистрации: ${data.nickname}`)
           await this.handleRegister(ws, data)
           break
         case "login":
+          console.log(`🔐 Попытка входа: ${data.nickname}`)
           await this.handleLogin(ws, data)
           break
         case "getRooms":
@@ -111,7 +126,8 @@ class WebSocketHandler {
           this.sendError(ws, `Неизвестный тип сообщения: ${data.type}`)
       }
     } catch (error) {
-      console.error("❌ Ошибка обработки сообщения:", error)
+      console.error(`❌ Ошибка обработки ${data.type} от ${userInfo}:`, error)
+      console.error("Stack trace:", error.stack)
       this.sendError(ws, "Ошибка обработки сообщения: " + error.message)
     }
   }
@@ -612,7 +628,10 @@ class WebSocketHandler {
   // Вспомогательные методы
   send(ws, data) {
     if (ws.readyState === WebSocket.OPEN) {
+      console.log(`📤 Отправка ${data.type} клиенту`)
       ws.send(JSON.stringify(data))
+    } else {
+      console.log(`❌ Попытка отправки ${data.type} клиенту с закрытым соединением (readyState: ${ws.readyState})`)
     }
   }
 

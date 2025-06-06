@@ -9,14 +9,25 @@ class Database {
   }
 
   async init() {
+    console.log(`💾 Инициализация базы данных: ${this.dbPath}`)
+
     return new Promise((resolve, reject) => {
+      console.log(`💾 Подключение к SQLite: ${this.dbPath}`)
+
       this.db = new sqlite3.Database(this.dbPath, (err) => {
         if (err) {
           console.error("❌ Ошибка подключения к базе данных:", err)
+          console.error("DB Path:", this.dbPath)
           reject(err)
         } else {
           console.log("✅ Подключение к SQLite базе данных установлено")
-          this.createTables().then(resolve).catch(reject)
+          console.log(`💾 Создание таблиц...`)
+          this.createTables()
+            .then(() => {
+              console.log("✅ Все таблицы созданы/проверены")
+              resolve()
+            })
+            .catch(reject)
         }
       })
     })
@@ -112,11 +123,24 @@ class Database {
   }
 
   runQuery(query, params = []) {
+    console.log(`🗃️ SQL Query: ${query.substring(0, 100)}${query.length > 100 ? "..." : ""}`)
+    if (params.length > 0) {
+      console.log(`🗃️ SQL Params:`, params)
+    }
+
     return new Promise((resolve, reject) => {
+      const startTime = Date.now()
+
       this.db.run(query, params, function (err) {
+        const duration = Date.now() - startTime
+
         if (err) {
+          console.error(`❌ SQL Error (${duration}ms):`, err.message)
+          console.error(`❌ Query:`, query)
+          console.error(`❌ Params:`, params)
           reject(err)
         } else {
+          console.log(`✅ SQL Success (${duration}ms) - changes: ${this.changes}, lastID: ${this.lastID}`)
           resolve({ id: this.lastID, changes: this.changes })
         }
       })

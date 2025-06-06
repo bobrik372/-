@@ -36,17 +36,27 @@ class MafiaGameServer {
   }
 
   setupRenderKeepAlive() {
+    console.log("🔧 Настройка keep-alive для Render...")
     if (process.env.NODE_ENV === "production") {
+      console.log("🏓 Запуск keep-alive таймера (каждые 5 минут)")
       setInterval(
         () => {
-          console.log("🏓 Render keep-alive ping")
-          // Делаем запрос к самому себе
+          console.log("🏓 Render keep-alive ping - отправляем запрос...")
+          const startTime = Date.now()
           fetch(`http://localhost:${this.port}/health`)
-            .then(() => console.log("✅ Keep-alive ping успешен"))
-            .catch((err) => console.log("❌ Keep-alive ping failed:", err))
+            .then((response) => {
+              const duration = Date.now() - startTime
+              console.log(`✅ Keep-alive ping успешен (${duration}ms) - статус: ${response.status}`)
+            })
+            .catch((err) => {
+              const duration = Date.now() - startTime
+              console.log(`❌ Keep-alive ping failed (${duration}ms):`, err.message)
+            })
         },
         5 * 60 * 1000,
       ) // 5 минут
+    } else {
+      console.log("🔧 Keep-alive отключен (development режим)")
     }
   }
 
@@ -76,7 +86,14 @@ class MafiaGameServer {
 
     // Логирование
     this.app.use((req, res, next) => {
-      console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`)
+      const startTime = Date.now()
+      console.log(`📥 ${new Date().toISOString()} - ${req.method} ${req.path} - IP: ${req.ip}`)
+
+      res.on("finish", () => {
+        const duration = Date.now() - startTime
+        console.log(`📤 ${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`)
+      })
+
       next()
     })
   }
@@ -545,24 +562,41 @@ class MafiaGameServer {
 
   async start() {
     try {
+      console.log("🚀 Запуск Mafia Game Server...")
+      console.log(`🌍 NODE_ENV: ${process.env.NODE_ENV}`)
+      console.log(`🔌 PORT: ${this.port}`)
+      console.log(`💾 DB Path: ${this.db.dbPath}`)
+
       // Инициализируем базу данных
+      console.log("💾 Инициализация базы данных...")
       await this.db.init()
       console.log("✅ База данных инициализирована")
 
       // Запускаем сервер
+      console.log(`🚀 Запуск HTTP сервера на порту ${this.port}...`)
       this.server.listen(this.port, () => {
+        console.log("=" * 50)
         console.log(`🚀 Mafia Game Server запущен на порту ${this.port}`)
         console.log(`👑 Великий бог Anubis правит сервером!`)
         console.log(`📊 Админ панель: http://localhost:${this.port}/admin`)
         console.log(`🔌 WebSocket: ws://localhost:${this.port}`)
         console.log(`🌐 API: http://localhost:${this.port}/api`)
+        console.log(`🏥 Health: http://localhost:${this.port}/health`)
+        console.log("=" * 50)
       })
 
       // Обработка сигналов завершения
-      process.on("SIGTERM", () => this.shutdown())
-      process.on("SIGINT", () => this.shutdown())
+      process.on("SIGTERM", () => {
+        console.log("🛑 Получен сигнал SIGTERM")
+        this.shutdown()
+      })
+      process.on("SIGINT", () => {
+        console.log("🛑 Получен сигнал SIGINT")
+        this.shutdown()
+      })
     } catch (error) {
-      console.error("❌ Ошибка запуска сервера:", error)
+      console.error("❌ КРИТИЧЕСКАЯ ОШИБКА запуска сервера:", error)
+      console.error("Stack trace:", error.stack)
       process.exit(1)
     }
   }
