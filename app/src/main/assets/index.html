@@ -799,6 +799,12 @@
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
+
+        @keyframes pulse {
+            0% { transform: translate(-50%, -50%) scale(1); }
+            50% { transform: translate(-50%, -50%) scale(1.05); }
+            100% { transform: translate(-50%, -50%) scale(1); }
+        }
     </style>
 </head>
 <body>
@@ -1565,6 +1571,14 @@
                 case 'logs':
                     console.log('📋 Логи сервера:', data.logs);
                     showNotification('Логи выведены в консоль', 'success');
+                    break;
+                
+                case 'autoStartTimer':
+                    showAutoStartTimer(data.timeLeft, data.reason);
+                    break;
+
+                case 'autoStartCancelled':
+                    hideAutoStartTimer();
                     break;
 
                 default:
@@ -2389,6 +2403,58 @@
             };
 
             console.log(`📢 Уведомление (${type}):`, message);
+        }
+
+        // Автостарт таймер
+        function showAutoStartTimer(timeLeft, reason) {
+            let timerElement = document.getElementById('autoStartTimer');
+            
+            if (!timerElement) {
+                timerElement = document.createElement('div');
+                timerElement.id = 'autoStartTimer';
+                timerElement.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: linear-gradient(135deg, #667eea, #764ba2);
+                    color: white;
+                    padding: 30px;
+                    border-radius: 15px;
+                    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+                    text-align: center;
+                    z-index: 2000;
+                    font-size: 1.2em;
+                    min-width: 300px;
+                `;
+                document.body.appendChild(timerElement);
+            }
+            
+            timerElement.innerHTML = `
+                <div style="font-size: 2em; margin-bottom: 15px;">🚀</div>
+                <div style="font-size: 1.5em; font-weight: bold; margin-bottom: 10px;">АВТОСТАРТ</div>
+                <div style="margin-bottom: 15px;">${reason}</div>
+                <div style="font-size: 3em; font-weight: bold; color: #ffff00;">${timeLeft}</div>
+                <div style="margin-top: 10px; font-size: 0.9em; opacity: 0.8;">секунд до начала игры</div>
+            `;
+            
+            // Добавляем звуковой эффект на последние 3 секунды
+            if (timeLeft <= 3 && timeLeft > 0) {
+                // Можно добавить звук тик-так
+                timerElement.style.animation = 'pulse 0.5s ease-in-out';
+            }
+        }
+
+        function hideAutoStartTimer() {
+            const timerElement = document.getElementById('autoStartTimer');
+            if (timerElement) {
+                timerElement.style.opacity = '0';
+                setTimeout(() => {
+                    if (timerElement.parentNode) {
+                        timerElement.parentNode.removeChild(timerElement);
+                    }
+                }, 300);
+            }
         }
 
         // Ping для поддержания соединения

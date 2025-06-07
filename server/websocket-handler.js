@@ -14,6 +14,12 @@ class WebSocketHandler {
     this.rooms = new Map() // roomId -> room data
     this.usersByNickname = new Map() // nickname -> ws
 
+    // Связываем GameEngine с комнатами и базой данных
+    if (this.gameEngine) {
+      this.gameEngine.setRooms(this.rooms)
+      this.gameEngine.setDatabase(this.db)
+    }
+
     this.setupWebSocket()
 
     console.log("✅ WebSocketHandler создан")
@@ -77,6 +83,29 @@ class WebSocketHandler {
     })
 
     console.log("✅ WebSocket сервер настроен")
+
+    // Запускаем периодическое обновление игр
+    this.startGameUpdateLoop()
+  }
+
+  startGameUpdateLoop() {
+    setInterval(() => {
+      for (const [roomId, room] of this.rooms.entries()) {
+        if (room.game && room.status === "playing") {
+          // Отправляем обновления игры всем игрокам в комнате
+          this.broadcastToRoom(roomId, {
+            type: "gameUpdate",
+            game: {
+              phase: room.game.phase,
+              day: room.game.day,
+              timeLeft: room.game.timeLeft,
+              lastAction: room.game.lastAction,
+              votingResults: room.game.votingResults,
+            },
+          })
+        }
+      }
+    }, 1000) // Обновляем каждую секунду
   }
 
   async handleMessage(ws, data) {
@@ -115,6 +144,9 @@ class WebSocketHandler {
           await this.handleChatMessage(ws, data)
           break
         case "gameAction":
+          if (!user || !user.isAuthenticated) {
+            return this.sendError(ws, "Вы не авторизованы")
+          }
           await this.handleGameAction(ws, data)
           break
         case "updateAvatar":
@@ -134,6 +166,30 @@ class WebSocketHandler {
             return this.sendError(ws, "Вы не авторизованы")
           }
           await this.handleAdminAction(ws, data)
+          break
+        case "startGame":
+          if (!user || !user.isAuthenticated) {
+            return this.sendError(ws, "Вы не авторизованы")
+          }
+          await this.startGame(ws)
+          break
+        case "addBot":
+          if (!user || !user.isAuthenticated) {
+            return this.sendError(ws, "Вы не авторизованы")
+          }
+          await this.addBot(ws, data)
+          break
+        case "removeBot":
+          if (!user || !user.isAuthenticated) {
+            return this.sendError(ws, "Вы не авторизованы")
+          }
+          await this.removeBot(ws, data)
+          break
+        case "forceEndGame":
+          if (!user || !user.isAuthenticated) {
+            return this.sendError(ws, "Вы не авторизованы")
+          }
+          await this.forceEndGame(ws, data)
           break
         case "ping":
           this.send(ws, { type: "pong", timestamp: new Date().toISOString() })
@@ -197,15 +253,17 @@ class WebSocketHandler {
         return this.sendError(ws, "Неверный никнейм или пароль")
       }
 
-      // Отключаем предыдущее соединение если есть
+      // Отключаем предыдущее соединение если есть - НО МЯГКО!
       const existingWs = this.usersByNickname.get(nickname)
       if (existingWs && existingWs !== ws) {
-        console.log(`🔄 Отключение предыдущего соединения для ${nickname}`)
+        console.log(`🔄 Мягкое отключение предыдущего соединения для ${nickname}`)
         this.send(existingWs, {
-          type: "kicked",
+          type: "forceReconnect",
           reason: "Вход с другого устройства",
         })
-        existingWs.close()
+        // НЕ закрываем соединение принудительно, пусть клиент сам переподключится
+        this.users.delete(existingWs)
+        this.usersByNickname.delete(nickname)
       }
 
       // Сохраняем пользователя
@@ -262,7 +320,6 @@ class WebSocketHandler {
             nickname: user.nickname,
             avatar: user.avatar,
             isCreator: true,
-            isReady: false,
             role: null,
             isAlive: true,
           },
@@ -332,12 +389,14 @@ class WebSocketHandler {
         nickname: user.nickname,
         avatar: user.avatar,
         isCreator: false,
-        isReady: false,
         role: null,
         isAlive: true,
       })
 
       user.currentRoom = roomId
+
+      // Проверяем автостарт
+      this.checkAutoStart(room)
 
       // Отправляем данные комнаты новому игроку
       this.send(ws, {
@@ -384,6 +443,9 @@ class WebSocketHandler {
     if (playerIndex !== -1) {
       room.players.splice(playerIndex, 1)
     }
+
+    // Отменяем автостарт если условия больше не выполняются
+    this.cancelAutoStart(room)
 
     user.currentRoom = null
 
@@ -516,11 +578,25 @@ class WebSocketHandler {
       await this.db.updateUserNicknameEffects(user.nickname, user.nickname_effects)
       user.coins -= price
 
+      // Отправляем обновленные данные пользователя
+      this.send(ws, {
+        type: "userUpdated",
+        user: {
+          nickname: user.nickname,
+          avatar: user.avatar,
+          coins: user.coins,
+          nickname_effects: user.nickname_effects,
+          games_played: user.games_played,
+          games_won: user.games_won,
+          games_survived: user.games_survived,
+          is_admin: user.is_admin,
+        },
+      })
+
       this.send(ws, {
         type: "effectBought",
         effect: effect,
-        coins: user.coins,
-        nickname_effects: user.nickname_effects,
+        message: `Эффект "${effect}" успешно куплен!`,
       })
     } catch (error) {
       console.error("❌ Ошибка покупки эффекта:", error)
@@ -579,6 +655,472 @@ class WebSocketHandler {
       console.error("❌ Ошибка админского действия:", error)
       this.sendError(ws, "Ошибка выполнения админского действия")
     }
+  }
+
+  async startGame(ws) {
+    const user = this.users.get(ws)
+    if (!user || !user.currentRoom) {
+      return this.sendError(ws, "Вы не находитесь в комнате")
+    }
+
+    const room = this.rooms.get(user.currentRoom)
+    if (!room) {
+      return this.sendError(ws, "Комната не найдена")
+    }
+
+    // Проверяем права создателя
+    if (room.creator !== user.nickname) {
+      return this.sendError(ws, "Только создатель может начать игру")
+    }
+
+    // Проверяем количество игроков
+    if (room.players.length < room.minPlayers) {
+      return this.sendError(ws, `Недостаточно игроков. Минимум: ${room.minPlayers}`)
+    }
+
+    try {
+      console.log(`🎮 Запуск игры в комнате ${room.name}`)
+
+      // Запускаем игру через игровой движок
+      if (this.gameEngine) {
+        console.log(`🎮 Используем GameEngine для запуска игры`)
+        const game = await this.gameEngine.startGame(room, this.db)
+        console.log(`🎮 Игра создана:`, game)
+      } else {
+        console.log(`🎮 GameEngine не найден, используем простую заглушку`)
+        // Простая заглушка для запуска игры
+        room.status = "playing"
+        room.game = {
+          phase: "night",
+          day: 1,
+          timeLeft: 60, // 60 секунд на ночь
+          votingResults: null,
+          lastAction: "Игра началась! Наступила ночь...",
+        }
+
+        // Раздаём роли
+        this.assignRoles(room)
+        await this.db.updateRoomStatus(room.id, "playing")
+      }
+
+      // Отправляем каждому игроку его роль
+      for (const player of room.players) {
+        const playerWs = this.usersByNickname.get(player.nickname)
+        if (playerWs) {
+          this.send(playerWs, {
+            type: "roleAssigned",
+            role: player.role,
+            mafiaMembers:
+              player.role === "mafia" || player.role === "don"
+                ? room.players.filter((p) => p.role === "mafia" || p.role === "don").map((p) => p.nickname)
+                : null,
+          })
+        }
+      }
+
+      this.broadcastToRoom(user.currentRoom, {
+        type: "gameStarted",
+        room: this.sanitizeRoomForClient(room),
+      })
+
+      this.broadcastToRoom(user.currentRoom, {
+        type: "chatMessage",
+        sender: "Система",
+        message: "🎮 Игра началась! Роли розданы. Удачи!",
+        timestamp: new Date().toISOString(),
+      })
+
+      await this.broadcastRoomsList()
+
+      console.log(`🎮 Игра успешно началась в комнате ${room.name}`)
+    } catch (error) {
+      console.error("❌ Ошибка запуска игры:", error)
+      this.sendError(ws, "Ошибка запуска игры: " + error.message)
+    }
+  }
+
+  assignRoles(room) {
+    const players = [...room.players]
+    const roles = []
+    const playerCount = players.length
+
+    console.log(`🎭 Раздача ролей для ${playerCount} игроков`)
+
+    // Обязательные роли
+    roles.push("don") // Дон мафии
+
+    // Добавляем мафию (1/3 от общего количества игроков, минимум 1)
+    const mafiaCount = Math.max(1, Math.floor(playerCount / 3))
+    for (let i = 1; i < mafiaCount; i++) {
+      roles.push("mafia")
+    }
+
+    // Добавляем доктора если включён и достаточно игроков
+    if (room.roles.doctor && playerCount >= 5) {
+      roles.push("doctor")
+    }
+
+    // Добавляем влюблённых если включены и достаточно игроков
+    if (room.roles.lovers && playerCount >= 6) {
+      roles.push("lover1", "lover2")
+    }
+
+    // Заполняем остальных мирными жителями
+    while (roles.length < playerCount) {
+      roles.push("citizen")
+    }
+
+    // Перемешиваем роли
+    for (let i = roles.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[roles[i], roles[j]] = [roles[j], roles[i]]
+    }
+
+    // Назначаем роли игрокам
+    players.forEach((player, index) => {
+      player.role = roles[index]
+      player.isAlive = true
+    })
+
+    console.log(
+      `🎭 Роли назначены:`,
+      players.map((p) => `${p.nickname}: ${p.role}`),
+    )
+  }
+
+  checkAutoStart(room) {
+    if (room.status !== "waiting" || room.autoStartTimer) {
+      return // Игра уже идёт или таймер уже запущен
+    }
+
+    const playerCount = room.players.length
+    let autoStartDelay = null
+
+    // Если набрано максимум игроков - 3 секунды
+    if (playerCount >= room.maxPlayers) {
+      autoStartDelay = 3
+    }
+    // Если набрано минимум игроков - 16 секунд
+    else if (playerCount >= room.minPlayers) {
+      autoStartDelay = 16
+    }
+
+    if (autoStartDelay) {
+      console.log(`⏰ Запуск автостарта для комнаты ${room.name} через ${autoStartDelay} секунд`)
+
+      room.autoStartTimer = autoStartDelay
+      room.autoStartInterval = setInterval(() => {
+        room.autoStartTimer--
+
+        // Отправляем обновление таймера всем в комнате
+        this.broadcastToRoom(room.id, {
+          type: "autoStartTimer",
+          timeLeft: room.autoStartTimer,
+          reason: playerCount >= room.maxPlayers ? "Комната заполнена" : "Минимум игроков набран",
+        })
+
+        if (room.autoStartTimer <= 0) {
+          this.executeAutoStart(room)
+        }
+      }, 1000)
+
+      // Уведомляем о начале автостарта
+      this.broadcastToRoom(room.id, {
+        type: "autoStartTimer",
+        timeLeft: room.autoStartTimer,
+        reason: playerCount >= room.maxPlayers ? "Комната заполнена" : "Минимум игроков набран",
+      })
+
+      this.broadcastToRoom(room.id, {
+        type: "chatMessage",
+        sender: "Система",
+        message: `⏰ Автостарт через ${autoStartDelay} секунд! ${playerCount >= room.maxPlayers ? "Комната заполнена" : "Минимум игроков набран"}`,
+        timestamp: new Date().toISOString(),
+      })
+    }
+  }
+
+  cancelAutoStart(room) {
+    if (room.autoStartTimer && room.autoStartInterval) {
+      console.log(`❌ Отмена автостарта для комнаты ${room.name}`)
+
+      clearInterval(room.autoStartInterval)
+      room.autoStartTimer = null
+      room.autoStartInterval = null
+
+      this.broadcastToRoom(room.id, {
+        type: "autoStartCancelled",
+      })
+
+      this.broadcastToRoom(room.id, {
+        type: "chatMessage",
+        sender: "Система",
+        message: "❌ Автостарт отменён",
+        timestamp: new Date().toISOString(),
+      })
+    }
+  }
+
+  async executeAutoStart(room) {
+    console.log(`🚀 Выполнение автостарта для комнаты ${room.name}`)
+
+    // Очищаем таймер
+    clearInterval(room.autoStartInterval)
+    room.autoStartTimer = null
+    room.autoStartInterval = null
+
+    try {
+      // Запускаем игру
+      if (this.gameEngine) {
+        console.log(`🎮 Автостарт: используем GameEngine`)
+        const game = await this.gameEngine.startGame(room, this.db)
+        console.log(`🎮 Автостарт: игра создана`)
+      } else {
+        console.log(`🎮 Автостарт: используем простую заглушку`)
+        room.status = "playing"
+        room.game = {
+          phase: "night",
+          day: 1,
+          timeLeft: 60,
+          votingResults: null,
+          lastAction: "Игра началась автоматически! Наступила ночь...",
+        }
+
+        this.assignRoles(room)
+        await this.db.updateRoomStatus(room.id, "playing")
+      }
+
+      // Отправляем каждому игроку его роль
+      for (const player of room.players) {
+        const playerWs = this.usersByNickname.get(player.nickname)
+        if (playerWs) {
+          this.send(playerWs, {
+            type: "roleAssigned",
+            role: player.role,
+            mafiaMembers:
+              player.role === "mafia" || player.role === "don"
+                ? room.players.filter((p) => p.role === "mafia" || p.role === "don").map((p) => p.nickname)
+                : null,
+          })
+        }
+      }
+
+      this.broadcastToRoom(room.id, {
+        type: "gameStarted",
+        room: this.sanitizeRoomForClient(room),
+      })
+
+      this.broadcastToRoom(room.id, {
+        type: "chatMessage",
+        sender: "Система",
+        message: "🚀 Игра запущена автоматически! Роли розданы. Удачи!",
+        timestamp: new Date().toISOString(),
+      })
+
+      await this.broadcastRoomsList()
+
+      console.log(`🎮 Автостарт: игра успешно началась в комнате ${room.name}`)
+    } catch (error) {
+      console.error("❌ Ошибка автостарта:", error)
+
+      this.broadcastToRoom(room.id, {
+        type: "chatMessage",
+        sender: "Система",
+        message: "❌ Ошибка автостарта игры",
+        timestamp: new Date().toISOString(),
+      })
+    }
+  }
+
+  async handleGameAction(ws, data) {
+    const user = this.users.get(ws)
+    if (!user || !user.currentRoom) {
+      return this.sendError(ws, "Вы не находитесь в комнате")
+    }
+
+    const room = this.rooms.get(user.currentRoom)
+    if (!room || !room.game) {
+      return this.sendError(ws, "Игра не найдена")
+    }
+
+    console.log(`🎮 Игровое действие от ${user.nickname}:`, data.action)
+
+    try {
+      // Передаём действие в игровой движок
+      if (this.gameEngine) {
+        await this.gameEngine.handleAction(room, user.nickname, data.action.action, data.action.target)
+      } else {
+        // Простая обработка действий без движка
+        this.send(ws, {
+          type: "actionReceived",
+          message: `Действие "${data.action.action}" принято`,
+        })
+      }
+
+      // Обновляем состояние игры для всех
+      this.broadcastToRoom(user.currentRoom, {
+        type: "gameUpdate",
+        game: {
+          phase: room.game.phase,
+          day: room.game.day,
+          timeLeft: room.game.timeLeft,
+          lastAction: room.game.lastAction,
+          votingResults: room.game.votingResults,
+        },
+      })
+    } catch (error) {
+      console.error("❌ Ошибка обработки игрового действия:", error)
+      this.sendError(ws, "Ошибка обработки действия")
+    }
+  }
+
+  async addBot(ws, data) {
+    const user = this.users.get(ws)
+    if (!user || !user.is_admin) {
+      return this.sendError(ws, "У вас нет прав администратора")
+    }
+
+    if (!user.currentRoom) {
+      return this.sendError(ws, "Вы не находитесь в комнате")
+    }
+
+    const room = this.rooms.get(user.currentRoom)
+    if (!room) {
+      return this.sendError(ws, "Комната не найдена")
+    }
+
+    if (room.players.length >= room.maxPlayers) {
+      return this.sendError(ws, "Комната заполнена")
+    }
+
+    const botName = data.botName || `Бот${Date.now()}`
+    const botAvatar = data.botAvatar || "🤖"
+
+    // Проверяем уникальность имени
+    if (room.players.find((p) => p.nickname === botName)) {
+      return this.sendError(ws, "Игрок с таким именем уже существует")
+    }
+
+    // Добавляем бота
+    room.players.push({
+      nickname: botName,
+      avatar: botAvatar,
+      isCreator: false,
+      role: null,
+      isAlive: true,
+      isBot: true,
+    })
+
+    // Проверяем автостарт
+    this.checkAutoStart(room)
+
+    this.broadcastToRoom(user.currentRoom, {
+      type: "roomUpdated",
+      room: this.sanitizeRoomForClient(room),
+    })
+
+    this.broadcastToRoom(user.currentRoom, {
+      type: "chatMessage",
+      sender: "Система",
+      message: `🤖 Бот ${botName} добавлен в комнату`,
+      timestamp: new Date().toISOString(),
+    })
+
+    this.send(ws, {
+      type: "botAdded",
+      botName: botName,
+    })
+
+    console.log(`🤖 Админ ${user.nickname} добавил бота ${botName}`)
+  }
+
+  async removeBot(ws, data) {
+    const user = this.users.get(ws)
+    if (!user || !user.is_admin) {
+      return this.sendError(ws, "У вас нет прав администратора")
+    }
+
+    if (!user.currentRoom) {
+      return this.sendError(ws, "Вы не находитесь в комнате")
+    }
+
+    const room = this.rooms.get(user.currentRoom)
+    if (!room) {
+      return this.sendError(ws, "Комната не найдена")
+    }
+
+    const botIndex = room.players.findIndex((p) => p.nickname === data.botName && p.isBot)
+    if (botIndex === -1) {
+      return this.sendError(ws, "Бот не найден")
+    }
+
+    room.players.splice(botIndex, 1)
+
+    // Отменяем автостарт если условия больше не выполняются
+    this.cancelAutoStart(room)
+
+    this.broadcastToRoom(user.currentRoom, {
+      type: "roomUpdated",
+      room: this.sanitizeRoomForClient(room),
+    })
+
+    this.broadcastToRoom(user.currentRoom, {
+      type: "chatMessage",
+      sender: "Система",
+      message: `🤖 Бот ${data.botName} удалён из комнаты`,
+      timestamp: new Date().toISOString(),
+    })
+
+    this.send(ws, {
+      type: "adminActionSuccess",
+      message: `Бот ${data.botName} удалён`,
+    })
+
+    console.log(`🗑️ Админ ${user.nickname} удалил бота ${data.botName}`)
+  }
+
+  async forceEndGame(ws, data) {
+    const user = this.users.get(ws)
+    if (!user || !user.is_admin) {
+      return this.sendError(ws, "У вас нет прав администратора")
+    }
+
+    const room = this.rooms.get(data.roomId || user.currentRoom)
+    if (!room) {
+      return this.sendError(ws, "Комната не найдена")
+    }
+
+    if (room.game) {
+      room.status = "waiting"
+      room.game = null
+
+      // Сбрасываем роли
+      room.players.forEach((player) => {
+        player.role = null
+        player.isAlive = true
+      })
+
+      await this.db.updateRoomStatus(room.id, "waiting")
+
+      this.broadcastToRoom(room.id, {
+        type: "gameEnded",
+        room: this.sanitizeRoomForClient(room),
+      })
+
+      this.broadcastToRoom(room.id, {
+        type: "chatMessage",
+        sender: "Система",
+        message: `👑 Игра принудительно завершена администратором`,
+        timestamp: new Date().toISOString(),
+      })
+    }
+
+    this.send(ws, {
+      type: "adminActionSuccess",
+      message: `Игра в комнате завершена`,
+    })
+
+    console.log(`👑 Админ ${user.nickname} завершил игру в комнате ${room.id}`)
   }
 
   handleDisconnect(ws) {
@@ -664,7 +1206,6 @@ class WebSocketHandler {
         nickname: p.nickname,
         avatar: p.avatar,
         isCreator: p.isCreator,
-        isReady: p.isReady,
         isAlive: p.isAlive,
         isBot: p.isBot || false,
         role: p.nickname === userNickname || room.status === "finished" ? p.role : null,
@@ -720,13 +1261,14 @@ class WebSocketHandler {
     try {
       const dbStats = await this.db.getStats()
       const wsStats = this.getStats()
+      const gameStats = this.gameEngine ? this.gameEngine.getGameStats() : { activeGames: 0 }
 
       this.send(ws, {
         type: "stats",
         stats: {
           onlineUsers: wsStats.connectedUsers,
           activeRooms: wsStats.activeRooms,
-          activeGames: 0,
+          activeGames: gameStats.activeGames,
           uptime: process.uptime(),
         },
       })
@@ -745,10 +1287,6 @@ class WebSocketHandler {
   }
 
   // Заглушки для остальных методов
-  async handleGameAction(ws, data) {
-    this.sendError(ws, "Игровые действия временно недоступны")
-  }
-
   async rejoinRoom(ws, roomId) {
     this.sendError(ws, "Переподключение к комнатам временно недоступно")
   }
