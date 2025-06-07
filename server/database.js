@@ -175,6 +175,35 @@ class Database {
     })
   }
 
+  // Методы для пользователей
+  async createUser(userData) {
+    const { nickname, password, avatar = "👤" } = userData
+
+    // Проверяем длину никнейма и пароля
+    if (nickname.length < 3 || nickname.length > 15) {
+      throw new Error("Никнейм должен быть от 3 до 15 символов")
+    }
+
+    if (password.length < 4 || password.length > 20) {
+      throw new Error("Пароль должен быть от 4 до 20 символов")
+    }
+
+    try {
+      const result = await this.runQuery("INSERT INTO users (nickname, password, avatar) VALUES (?, ?, ?)", [
+        nickname,
+        password,
+        avatar,
+      ])
+
+      return this.getUser(nickname)
+    } catch (error) {
+      if (error.message.includes("UNIQUE constraint failed")) {
+        throw new Error("Пользователь с таким никнеймом уже существует")
+      }
+      throw error
+    }
+  }
+
   async getUser(nickname) {
     const user = await this.getQuery("SELECT * FROM users WHERE nickname = ?", [nickname])
     if (user && user.nickname_effects) {
@@ -185,6 +214,170 @@ class Database {
       }
     }
     return user
+  }
+
+  async loginUser(nickname, password) {
+    const user = await this.getQuery("SELECT * FROM users WHERE nickname = ? AND password = ?", [nickname, password])
+
+    if (user) {
+      // Обновляем время последнего входа
+      await this.runQuery("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE nickname = ?", [nickname])
+
+      if (user.nickname_effects) {
+        try {
+          user.nickname_effects = JSON.parse(user.nickname_effects)
+        } catch {
+          user.nickname_effects = []
+        }
+      }
+    }
+
+    return user
+  }
+
+  async updateUserCoins(nickname, amount) {
+    await this.runQuery("UPDATE users SET coins = coins + ? WHERE nickname = ?", [amount, nickname])
+  }
+
+  async updateUserStats(nickname, won = false, survived = false) {
+    let query = "UPDATE users SET games_played = games_played + 1"
+    const params = []
+
+    if (won) {
+      query += ", games_won = games_won + 1"
+    }
+    if (survived) {
+      query += ", games_survived = games_survived + 1"
+    }
+
+    query += " WHERE nickname = ?"
+    params.push(nickname)
+
+    await this.runQuery(query, params)
+  }
+
+  async updateUserAvatar(nickname, avatar) {
+    await this.runQuery("UPDATE users SET avatar = ? WHERE nickname = ?", [avatar, nickname])
+  }
+
+  async updateUserNicknameEffects(nickname, effects) {
+    await this.runQuery("UPDATE users SET nickname_effects = ? WHERE nickname = ?", [JSON.stringify(effects), nickname])
+  }
+
+  // Админские методы
+  async adminUpdateUserCoins(adminNickname, targetNickname, amount) {
+    // Проверяем права админа
+    const admin = await this.getUser(adminNickname)
+    if (!admin || !admin.is_admin) {
+      throw new Error("Недостаточно прав")
+    }
+
+    await this.updateUserCoins(targetNickname, amount)
+
+    // Логируем действие
+    await this.runQuery(
+      "INSERT INTO admin_actions (admin_nickname, action_type, target_nickname, details) VALUES (?, ?, ?, ?)",
+      [adminNickname, "coins_update", targetNickname, `Изменение монет: ${amount}`],
+    )
+  }
+
+  async adminUpdateUserEffects(adminNickname, targetNickname, effects) {
+    const admin = await this.getUser(adminNickname)
+    if (!admin || !admin.is_admin) {
+      throw new Error("Недостаточно прав")
+    }
+
+    await this.updateUserNicknameEffects(targetNickname, effects)
+
+    await this.runQuery(
+      "INSERT INTO admin_actions (admin_nickname, action_type, target_nickname, details) VALUES (?, ?, ?, ?)",
+      [adminNickname, "effects_update", targetNickname, `Обновление эффектов: ${JSON.stringify(effects)}`],
+    )
+  }
+
+  // Методы для комнат
+  async createRoom(roomData) {
+    const { id, name, creator, minPlayers, maxPlayers, roles, password } = roomData
+
+    await this.runQuery(
+      "INSERT INTO rooms (id, name, creator_nickname, min_players, max_players, roles, password) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [id, name, creator.nickname, minPlayers, maxPlayers, JSON.stringify(roles), password],
+    )
+  }
+
+  async getRooms() {
+    const rooms = await this.allQuery('SELECT * FROM rooms WHERE status = "waiting" ORDER BY created_at DESC')
+
+    return rooms.map((room) => ({
+      ...room,
+      roles: JSON.parse(room.roles),
+      hasPassword: !!room.password,
+    }))
+  }
+
+  async getRoom(roomId) {
+    const room = await this.getQuery("SELECT * FROM rooms WHERE id = ?", [roomId])
+    if (room && room.roles) {
+      room.roles = JSON.parse(room.roles)
+    }
+    return room
+  }
+
+  async deleteRoom(roomId) {
+    await this.runQuery("DELETE FROM rooms WHERE id = ?", [roomId])
+  }
+
+  async updateRoomStatus(roomId, status) {
+    await this.runQuery("UPDATE rooms SET status = ? WHERE id = ?", [status, roomId])
+  }
+
+  // Методы для игр
+  async startGame(roomId, gameData) {
+    const gameId = "game_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9)
+
+    await this.runQuery("INSERT INTO games (id, room_id, players, roles_distribution) VALUES (?, ?, ?, ?)", [
+      gameId,
+      roomId,
+      JSON.stringify(gameData.players),
+      JSON.stringify(gameData.roles),
+    ])
+
+    await this.updateRoomStatus(roomId, "playing")
+    return gameId
+  }
+
+  async endGame(gameId, winner, gameLog = []) {
+    await this.runQuery(
+      'UPDATE games SET status = "finished", winner = ?, game_log = ?, ended_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [winner, JSON.stringify(gameLog), gameId],
+    )
+  }
+
+  // Методы для сообщений
+  async saveMessage(messageData) {
+    const { roomId, sender, message, messageType = "chat", timestamp } = messageData
+
+    await this.runQuery(
+      "INSERT INTO messages (room_id, sender, message, message_type, timestamp) VALUES (?, ?, ?, ?, ?)",
+      [roomId, sender, message, messageType, timestamp],
+    )
+  }
+
+  async getRoomMessages(roomId, limit = 50) {
+    return this.allQuery("SELECT * FROM messages WHERE room_id = ? ORDER BY timestamp DESC LIMIT ?", [roomId, limit])
+  }
+
+  // Статистика
+  async getStats() {
+    const totalUsers = await this.getQuery("SELECT COUNT(*) as count FROM users")
+    const totalGames = await this.getQuery("SELECT COUNT(*) as count FROM games")
+    const activeRooms = await this.getQuery('SELECT COUNT(*) as count FROM rooms WHERE status = "waiting"')
+
+    return {
+      totalUsers: totalUsers.count,
+      totalGames: totalGames.count,
+      activeRooms: activeRooms.count,
+    }
   }
 
   async close() {
