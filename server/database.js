@@ -1,11 +1,15 @@
 const sqlite3 = require("sqlite3").verbose()
 const path = require("path")
 
+console.log("📦 Загрузка Database модуля...")
+
 class Database {
   constructor() {
+    console.log("💾 Создание экземпляра Database...")
     this.db = null
     // Для Render используем /tmp для временных файлов
     this.dbPath = process.env.NODE_ENV === "production" ? "/tmp/mafia_game.db" : path.join(__dirname, "mafia_game.db")
+    console.log(`💾 DB Path: ${this.dbPath}`)
   }
 
   async init() {
@@ -34,6 +38,8 @@ class Database {
   }
 
   async createTables() {
+    console.log("🗃️ Создание таблиц базы данных...")
+
     const queries = [
       `CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,15 +100,18 @@ class Database {
     ]
 
     for (const query of queries) {
+      console.log(`🗃️ Выполнение запроса: ${query.substring(0, 50)}...`)
       await this.runQuery(query)
     }
 
     // Создаем админа Anubis если его нет
     await this.createAnubisAdmin()
+    console.log("✅ Все таблицы созданы")
   }
 
   async createAnubisAdmin() {
     try {
+      console.log("👑 Проверка/создание админа Anubis...")
       const anubis = await this.getUser("Anubis")
       if (!anubis) {
         await this.runQuery(
@@ -116,18 +125,15 @@ class Database {
           "Anubis",
         ])
         console.log("✅ Anubis получил божественные права!")
+      } else {
+        console.log("✅ Великий бог Anubis уже существует")
       }
     } catch (error) {
-      console.error("Ошибка создания Anubis:", error)
+      console.error("❌ Ошибка создания Anubis:", error)
     }
   }
 
   runQuery(query, params = []) {
-    console.log(`🗃️ SQL Query: ${query.substring(0, 100)}${query.length > 100 ? "..." : ""}`)
-    if (params.length > 0) {
-      console.log(`🗃️ SQL Params:`, params)
-    }
-
     return new Promise((resolve, reject) => {
       const startTime = Date.now()
 
@@ -136,11 +142,9 @@ class Database {
 
         if (err) {
           console.error(`❌ SQL Error (${duration}ms):`, err.message)
-          console.error(`❌ Query:`, query)
-          console.error(`❌ Params:`, params)
           reject(err)
         } else {
-          console.log(`✅ SQL Success (${duration}ms) - changes: ${this.changes}, lastID: ${this.lastID}`)
+          console.log(`✅ SQL Success (${duration}ms) - changes: ${this.changes}`)
           resolve({ id: this.lastID, changes: this.changes })
         }
       })
@@ -171,35 +175,6 @@ class Database {
     })
   }
 
-  // Методы для пользователей
-  async createUser(userData) {
-    const { nickname, password, avatar = "👤" } = userData
-
-    // Проверяем длину никнейма и пароля
-    if (nickname.length < 3 || nickname.length > 15) {
-      throw new Error("Никнейм должен быть от 3 до 15 символов")
-    }
-
-    if (password.length < 4 || password.length > 20) {
-      throw new Error("Пароль должен быть от 4 до 20 символов")
-    }
-
-    try {
-      const result = await this.runQuery("INSERT INTO users (nickname, password, avatar) VALUES (?, ?, ?)", [
-        nickname,
-        password,
-        avatar,
-      ])
-
-      return this.getUser(nickname)
-    } catch (error) {
-      if (error.message.includes("UNIQUE constraint failed")) {
-        throw new Error("Пользователь с таким никнеймом уже существует")
-      }
-      throw error
-    }
-  }
-
   async getUser(nickname) {
     const user = await this.getQuery("SELECT * FROM users WHERE nickname = ?", [nickname])
     if (user && user.nickname_effects) {
@@ -212,176 +187,12 @@ class Database {
     return user
   }
 
-  async loginUser(nickname, password) {
-    const user = await this.getQuery("SELECT * FROM users WHERE nickname = ? AND password = ?", [nickname, password])
-
-    if (user) {
-      // Обновляем время последнего входа
-      await this.runQuery("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE nickname = ?", [nickname])
-
-      if (user.nickname_effects) {
-        try {
-          user.nickname_effects = JSON.parse(user.nickname_effects)
-        } catch {
-          user.nickname_effects = []
-        }
-      }
-    }
-
-    return user
-  }
-
-  async updateUserCoins(nickname, amount) {
-    await this.runQuery("UPDATE users SET coins = coins + ? WHERE nickname = ?", [amount, nickname])
-  }
-
-  async updateUserStats(nickname, won = false, survived = false) {
-    let query = "UPDATE users SET games_played = games_played + 1"
-    const params = []
-
-    if (won) {
-      query += ", games_won = games_won + 1"
-    }
-    if (survived) {
-      query += ", games_survived = games_survived + 1"
-    }
-
-    query += " WHERE nickname = ?"
-    params.push(nickname)
-
-    await this.runQuery(query, params)
-  }
-
-  async updateUserAvatar(nickname, avatar) {
-    await this.runQuery("UPDATE users SET avatar = ? WHERE nickname = ?", [avatar, nickname])
-  }
-
-  async updateUserNicknameEffects(nickname, effects) {
-    await this.runQuery("UPDATE users SET nickname_effects = ? WHERE nickname = ?", [JSON.stringify(effects), nickname])
-  }
-
-  // Админские методы
-  async adminUpdateUserCoins(adminNickname, targetNickname, amount) {
-    // Проверяем права админа
-    const admin = await this.getUser(adminNickname)
-    if (!admin || !admin.is_admin) {
-      throw new Error("Недостаточно прав")
-    }
-
-    await this.updateUserCoins(targetNickname, amount)
-
-    // Логируем действие
-    await this.runQuery(
-      "INSERT INTO admin_actions (admin_nickname, action_type, target_nickname, details) VALUES (?, ?, ?, ?)",
-      [adminNickname, "coins_update", targetNickname, `Изменение монет: ${amount}`],
-    )
-  }
-
-  async adminUpdateUserEffects(adminNickname, targetNickname, effects) {
-    const admin = await this.getUser(adminNickname)
-    if (!admin || !admin.is_admin) {
-      throw new Error("Недостаточно прав")
-    }
-
-    await this.updateUserNicknameEffects(targetNickname, effects)
-
-    await this.runQuery(
-      "INSERT INTO admin_actions (admin_nickname, action_type, target_nickname, details) VALUES (?, ?, ?, ?)",
-      [adminNickname, "effects_update", targetNickname, `Обновление эффектов: ${JSON.stringify(effects)}`],
-    )
-  }
-
-  // Методы для комнат
-  async createRoom(roomData) {
-    const { id, name, creator, minPlayers, maxPlayers, roles, password } = roomData
-
-    await this.runQuery(
-      "INSERT INTO rooms (id, name, creator_nickname, min_players, max_players, roles, password) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [id, name, creator.nickname, minPlayers, maxPlayers, JSON.stringify(roles), password],
-    )
-  }
-
-  async getRooms() {
-    const rooms = await this.allQuery('SELECT * FROM rooms WHERE status = "waiting" ORDER BY created_at DESC')
-
-    return rooms.map((room) => ({
-      ...room,
-      roles: JSON.parse(room.roles),
-      hasPassword: !!room.password,
-    }))
-  }
-
-  async getRoom(roomId) {
-    const room = await this.getQuery("SELECT * FROM rooms WHERE id = ?", [roomId])
-    if (room && room.roles) {
-      room.roles = JSON.parse(room.roles)
-    }
-    return room
-  }
-
-  async deleteRoom(roomId) {
-    await this.runQuery("DELETE FROM rooms WHERE id = ?", [roomId])
-  }
-
-  async updateRoomStatus(roomId, status) {
-    await this.runQuery("UPDATE rooms SET status = ? WHERE id = ?", [status, roomId])
-  }
-
-  // Методы для игр
-  async startGame(roomId, gameData) {
-    const gameId = "game_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9)
-
-    await this.runQuery("INSERT INTO games (id, room_id, players, roles_distribution) VALUES (?, ?, ?, ?)", [
-      gameId,
-      roomId,
-      JSON.stringify(gameData.players),
-      JSON.stringify(gameData.roles),
-    ])
-
-    await this.updateRoomStatus(roomId, "playing")
-    return gameId
-  }
-
-  async endGame(gameId, winner, gameLog = []) {
-    await this.runQuery(
-      'UPDATE games SET status = "finished", winner = ?, game_log = ?, ended_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [winner, JSON.stringify(gameLog), gameId],
-    )
-  }
-
-  // Методы для сообщений
-  async saveMessage(messageData) {
-    const { roomId, sender, message, messageType = "chat", timestamp } = messageData
-
-    await this.runQuery(
-      "INSERT INTO messages (room_id, sender, message, message_type, timestamp) VALUES (?, ?, ?, ?, ?)",
-      [roomId, sender, message, messageType, timestamp],
-    )
-  }
-
-  async getRoomMessages(roomId, limit = 50) {
-    return this.allQuery("SELECT * FROM messages WHERE room_id = ? ORDER BY timestamp DESC LIMIT ?", [roomId, limit])
-  }
-
-  // Статистика
-  async getStats() {
-    const totalUsers = await this.getQuery("SELECT COUNT(*) as count FROM users")
-    const totalGames = await this.getQuery("SELECT COUNT(*) as count FROM games")
-    const activeRooms = await this.getQuery('SELECT COUNT(*) as count FROM rooms WHERE status = "waiting"')
-
-    return {
-      totalUsers: totalUsers.count,
-      totalGames: totalGames.count,
-      activeRooms: activeRooms.count,
-    }
-  }
-
   async close() {
     return new Promise((resolve) => {
       if (this.db) {
         this.db.close((err) => {
           if (err) {
-            console.error("Ошибка закрытия базы данных:", err)
+            console.error("❌ Ошибка закрытия базы данных:", err)
           } else {
             console.log("✅ База данных закрыта")
           }
@@ -394,4 +205,5 @@ class Database {
   }
 }
 
+console.log("✅ Database модуль загружен")
 module.exports = Database

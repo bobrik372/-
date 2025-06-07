@@ -3,293 +3,238 @@ const http = require("http")
 const WebSocket = require("ws")
 const cors = require("cors")
 const multer = require("multer")
-const sharp = require("sharp")
 const path = require("path")
 const fs = require("fs")
 
-const Database = require("./database")
-const WebSocketHandler = require("./websocket-handler")
-const GameEngine = require("./game-engine")
+// МАКСИМАЛЬНОЕ ЛОГИРОВАНИЕ С САМОГО НАЧАЛА
+console.log("🚀 СТАРТ ПРИЛОЖЕНИЯ - НАЧАЛО ЗАГРУЗКИ МОДУЛЕЙ")
+console.log(`📅 Время: ${new Date().toISOString()}`)
+console.log(`🌍 NODE_ENV: ${process.env.NODE_ENV}`)
+console.log(`🔌 PORT: ${process.env.PORT}`)
+console.log(`📁 __dirname: ${__dirname}`)
+console.log(`📁 process.cwd(): ${process.cwd()}`)
+
+let Database, WebSocketHandler, GameEngine
+
+try {
+  console.log("📦 Загрузка Database...")
+  Database = require("./database")
+  console.log("✅ Database загружен")
+} catch (error) {
+  console.error("❌ ОШИБКА загрузки Database:", error)
+  process.exit(1)
+}
+
+try {
+  console.log("📦 Загрузка WebSocketHandler...")
+  WebSocketHandler = require("./websocket-handler")
+  console.log("✅ WebSocketHandler загружен")
+} catch (error) {
+  console.error("❌ ОШИБКА загрузки WebSocketHandler:", error)
+  process.exit(1)
+}
+
+try {
+  console.log("📦 Загрузка GameEngine...")
+  GameEngine = require("./game-engine")
+  console.log("✅ GameEngine загружен")
+} catch (error) {
+  console.error("❌ ОШИБКА загрузки GameEngine:", error)
+  process.exit(1)
+}
+
+console.log("✅ ВСЕ МОДУЛИ ЗАГРУЖЕНЫ")
 
 class MafiaGameServer {
   constructor() {
-    console.log("🏗️ Создание экземпляра MafiaGameServer...")
-
-    this.app = express()
-    this.server = http.createServer(this.app)
-
-    console.log("🔌 Создание WebSocket сервера...")
-    this.wss = new WebSocket.Server({
-      server: this.server,
-      verifyClient: (info) => {
-        console.log(`🔍 WebSocket verifyClient - Origin: ${info.origin}, IP: ${info.req.socket.remoteAddress}`)
-        return true
-      },
-    })
-
-    this.db = new Database()
-    this.gameEngine = new GameEngine()
-    this.wsHandler = new WebSocketHandler(this.wss, this.db, this.gameEngine)
-
-    // Устанавливаем связи
-    this.gameEngine.setRooms(this.wsHandler.rooms)
-    this.gameEngine.setDatabase(this.db)
-
-    this.setupMiddleware()
-    this.setupRoutes()
-    this.setupErrorHandling()
+    console.log("🏗️ СОЗДАНИЕ ЭКЗЕМПЛЯРА MafiaGameServer...")
 
     this.port = process.env.PORT || 3000
+    console.log(`🔌 Порт установлен: ${this.port}`)
 
-    // Пинг для Render каждые 5 минут
-    this.setupRenderKeepAlive()
+    try {
+      console.log("🌐 Создание Express приложения...")
+      this.app = express()
+      console.log("✅ Express создан")
 
-    console.log("✅ MafiaGameServer создан")
-  }
+      console.log("🌐 Создание HTTP сервера...")
+      this.server = http.createServer(this.app)
+      console.log("✅ HTTP сервер создан")
 
-  setupRenderKeepAlive() {
-    console.log("🔧 Настройка keep-alive для Render...")
-    if (process.env.NODE_ENV === "production") {
-      console.log("🏓 Запуск keep-alive таймера (каждые 5 минут)")
-      setInterval(
-        () => {
-          console.log("🏓 Render keep-alive ping - отправляем запрос...")
-          const startTime = Date.now()
-          fetch(`http://localhost:${this.port}/health`)
-            .then((response) => {
-              const duration = Date.now() - startTime
-              console.log(`✅ Keep-alive ping успешен (${duration}ms) - статус: ${response.status}`)
-            })
-            .catch((err) => {
-              const duration = Date.now() - startTime
-              console.log(`❌ Keep-alive ping failed (${duration}ms):`, err.message)
-            })
+      console.log("🔌 Создание WebSocket сервера...")
+      this.wss = new WebSocket.Server({
+        server: this.server,
+        verifyClient: (info) => {
+          console.log(`🔍 WebSocket verifyClient - Origin: ${info.origin}, IP: ${info.req.socket.remoteAddress}`)
+          return true
         },
-        5 * 60 * 1000,
-      ) // 5 минут
-    } else {
-      console.log("🔧 Keep-alive отключен (development режим)")
+      })
+      console.log("✅ WebSocket сервер создан")
+
+      console.log("💾 Создание Database...")
+      this.db = new Database()
+      console.log("✅ Database создан")
+
+      console.log("🎮 Создание GameEngine...")
+      this.gameEngine = new GameEngine()
+      console.log("✅ GameEngine создан")
+
+      console.log("🔌 Создание WebSocketHandler...")
+      this.wsHandler = new WebSocketHandler(this.wss, this.db, this.gameEngine)
+      console.log("✅ WebSocketHandler создан")
+
+      // Устанавливаем связи
+      this.gameEngine.setRooms(this.wsHandler.rooms)
+      this.gameEngine.setDatabase(this.db)
+
+      this.setupMiddleware()
+      this.setupRoutes()
+      this.setupErrorHandling()
+
+      console.log("✅ MafiaGameServer создан успешно")
+    } catch (error) {
+      console.error("❌ КРИТИЧЕСКАЯ ОШИБКА создания MafiaGameServer:", error)
+      console.error("Stack trace:", error.stack)
+      process.exit(1)
     }
   }
 
   setupMiddleware() {
     console.log("🔧 Настройка middleware...")
 
-    // CORS
-    this.app.use(
-      cors({
-        origin: "*",
-        methods: ["GET", "POST", "PUT", "DELETE"],
-        allowedHeaders: ["Content-Type", "Authorization"],
-      }),
-    )
+    try {
+      // CORS
+      console.log("🌐 Настройка CORS...")
+      this.app.use(
+        cors({
+          origin: "*",
+          methods: ["GET", "POST", "PUT", "DELETE"],
+          allowedHeaders: ["Content-Type", "Authorization"],
+        }),
+      )
+      console.log("✅ CORS настроен")
 
-    // JSON парсер
-    this.app.use(express.json({ limit: "10mb" }))
-    this.app.use(express.urlencoded({ extended: true }))
+      // JSON парсер
+      console.log("📦 Настройка JSON парсера...")
+      this.app.use(express.json({ limit: "10mb" }))
+      this.app.use(express.urlencoded({ extended: true }))
+      console.log("✅ JSON парсер настроен")
 
-    // Статические файлы
-    this.app.use("/uploads", express.static(path.join(__dirname, "uploads")))
-    this.app.use("/static", express.static(path.join(__dirname, "public")))
-
-    // Создаём папку для загрузок если её нет
-    const uploadsDir = path.join(__dirname, "uploads")
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true })
-    }
-
-    // МАКСИМАЛЬНОЕ логирование всех запросов
-    this.app.use((req, res, next) => {
-      const startTime = Date.now()
-      const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress
-
-      console.log("=" * 80)
-      console.log(`📥 ВХОДЯЩИЙ ЗАПРОС`)
-      console.log(`📅 Время: ${new Date().toISOString()}`)
-      console.log(`🌐 Метод: ${req.method}`)
-      console.log(`🔗 URL: ${req.url}`)
-      console.log(`📍 Path: ${req.path}`)
-      console.log(`🏠 IP: ${clientIP}`)
-      console.log(`🔧 User-Agent: ${req.get("User-Agent")}`)
-      console.log(`🔑 Headers:`, JSON.stringify(req.headers, null, 2))
-
-      if (req.body && Object.keys(req.body).length > 0) {
-        console.log(`📦 Body:`, JSON.stringify(req.body, null, 2))
+      // Создаём папку для загрузок если её нет
+      const uploadsDir = path.join(__dirname, "uploads")
+      if (!fs.existsSync(uploadsDir)) {
+        console.log("📁 Создание папки uploads...")
+        fs.mkdirSync(uploadsDir, { recursive: true })
+        console.log("✅ Папка uploads создана")
       }
 
-      console.log("=" * 80)
+      // Статические файлы
+      console.log("📁 Настройка статических файлов...")
+      this.app.use("/uploads", express.static(uploadsDir))
+      console.log("✅ Статические файлы настроены")
 
-      res.on("finish", () => {
-        const duration = Date.now() - startTime
-        console.log(`📤 ОТВЕТ: ${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`)
+      // МАКСИМАЛЬНОЕ логирование всех запросов
+      this.app.use((req, res, next) => {
+        const startTime = Date.now()
+        const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress
+
+        console.log("🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥")
+        console.log(`📥 ВХОДЯЩИЙ HTTP ЗАПРОС`)
+        console.log(`📅 Время: ${new Date().toISOString()}`)
+        console.log(`🌐 Метод: ${req.method}`)
+        console.log(`🔗 URL: ${req.url}`)
+        console.log(`📍 Path: ${req.path}`)
+        console.log(`🏠 IP: ${clientIP}`)
+        console.log(`🔧 User-Agent: ${req.get("User-Agent")}`)
+        console.log(`🔑 Headers:`, JSON.stringify(req.headers, null, 2))
+
+        if (req.body && Object.keys(req.body).length > 0) {
+          console.log(`📦 Body:`, JSON.stringify(req.body, null, 2))
+        }
+
+        console.log("🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥")
+
+        res.on("finish", () => {
+          const duration = Date.now() - startTime
+          console.log(`📤 ОТВЕТ: ${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`)
+        })
+
+        next()
       })
 
-      next()
-    })
-
-    console.log("✅ Middleware настроен")
+      console.log("✅ Middleware настроен")
+    } catch (error) {
+      console.error("❌ ОШИБКА настройки middleware:", error)
+      throw error
+    }
   }
 
   setupRoutes() {
     console.log("🛣️ Настройка маршрутов...")
 
-    // API маршруты
-    this.app.use("/api", this.createApiRoutes())
-
-    // Главная страница
-    this.app.get("/", (req, res) => {
-      console.log("🏠 Запрос главной страницы")
-      res.json({
-        name: "🎭 Mafia Game Server",
-        version: "2.0.0",
-        status: "running",
-        uptime: Math.floor(process.uptime()),
-        admin: "Anubis - Великий Бог",
-        stats: {
-          ...this.wsHandler.getStats(),
-          ...this.gameEngine.getGameStats(),
-        },
+    try {
+      // Главная страница - ПРОСТЕЙШИЙ ТЕСТ
+      this.app.get("/", (req, res) => {
+        console.log("🏠 ЗАПРОС ГЛАВНОЙ СТРАНИЦЫ!")
+        const response = {
+          message: "🎭 Mafia Game Server работает!",
+          version: "2.0.0",
+          status: "running",
+          uptime: Math.floor(process.uptime()),
+          timestamp: new Date().toISOString(),
+          port: this.port,
+          env: process.env.NODE_ENV,
+        }
+        console.log("📤 Отправка ответа:", response)
+        res.json(response)
       })
-    })
 
-    // Админ панель
-    this.app.get("/admin", (req, res) => {
-      console.log("👑 Запрос админ панели")
-      res.send(this.generateAdminPage())
-    })
-
-    // Здоровье сервера для Render
-    this.app.get("/health", (req, res) => {
-      console.log("🏥 Health check запрос")
-      res.json({
-        status: "healthy",
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
+      // Health check для Render
+      this.app.get("/health", (req, res) => {
+        console.log("🏥 HEALTH CHECK ЗАПРОС!")
+        const response = {
+          status: "healthy",
+          timestamp: new Date().toISOString(),
+          uptime: process.uptime(),
+        }
+        console.log("📤 Health check ответ:", response)
+        res.json(response)
       })
-    })
 
-    console.log("✅ Маршруты настроены")
+      // Тестовый маршрут
+      this.app.get("/test", (req, res) => {
+        console.log("🧪 ТЕСТОВЫЙ ЗАПРОС!")
+        res.json({
+          test: "OK",
+          message: "Сервер работает нормально!",
+          timestamp: new Date().toISOString(),
+        })
+      })
+
+      // API маршруты
+      this.app.use("/api", this.createApiRoutes())
+
+      console.log("✅ Маршруты настроены")
+    } catch (error) {
+      console.error("❌ ОШИБКА настройки маршрутов:", error)
+      throw error
+    }
   }
 
   createApiRoutes() {
+    console.log("🔧 Создание API маршрутов...")
     const router = express.Router()
 
-    // Настройка multer для загрузки аватарок
-    const storage = multer.memoryStorage()
-    const upload = multer({
-      storage: storage,
-      limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB
-      },
-      fileFilter: (req, file, cb) => {
-        if (file.mimetype.startsWith("image/")) {
-          cb(null, true)
-        } else {
-          cb(new Error("Только изображения разрешены"))
-        }
-      },
+    // Простой тест API
+    router.get("/test", (req, res) => {
+      console.log("🧪 API TEST запрос!")
+      res.json({
+        api: "working",
+        timestamp: new Date().toISOString(),
+      })
     })
 
-    // Проверка уникальности никнейма
-    router.post("/check-nickname", async (req, res) => {
-      try {
-        const { nickname } = req.body
-
-        if (!nickname) {
-          return res.status(400).json({ error: "Никнейм не указан" })
-        }
-
-        const user = await this.db.getUser(nickname)
-        res.json({ isUnique: !user })
-      } catch (error) {
-        console.error("Ошибка проверки никнейма:", error)
-        res.status(500).json({ error: "Внутренняя ошибка сервера" })
-      }
-    })
-
-    // Загрузка аватарки
-    router.post("/upload-avatar", upload.single("avatar"), async (req, res) => {
-      try {
-        if (!req.file) {
-          return res.status(400).json({ error: "Файл не загружен" })
-        }
-
-        // Обрабатываем изображение
-        const filename = `avatar_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.webp`
-        const filepath = path.join(__dirname, "uploads", filename)
-
-        await sharp(req.file.buffer).resize(100, 100).webp({ quality: 80 }).toFile(filepath)
-
-        const avatarUrl = `/uploads/${filename}`
-
-        res.json({
-          success: true,
-          avatarUrl: avatarUrl,
-        })
-      } catch (error) {
-        console.error("Ошибка загрузки аватарки:", error)
-        res.status(500).json({ error: "Ошибка загрузки аватарки" })
-      }
-    })
-
-    // Получение пользователя
-    router.get("/users/:nickname", async (req, res) => {
-      try {
-        const { nickname } = req.params
-        const user = await this.db.getUser(nickname)
-
-        if (!user) {
-          return res.status(404).json({ error: "Пользователь не найден" })
-        }
-
-        // Не отправляем пароль
-        const { password, ...userWithoutPassword } = user
-        res.json(userWithoutPassword)
-      } catch (error) {
-        console.error("Ошибка получения пользователя:", error)
-        res.status(500).json({ error: "Внутренняя ошибка сервера" })
-      }
-    })
-
-    // Статистика сервера
-    router.get("/stats", async (req, res) => {
-      try {
-        const dbStats = await this.db.getStats()
-        res.json({
-          server: {
-            uptime: process.uptime(),
-            memory: process.memoryUsage(),
-            timestamp: new Date().toISOString(),
-          },
-          database: dbStats,
-          websocket: this.wsHandler.getStats(),
-          game: this.gameEngine.getGameStats(),
-        })
-      } catch (error) {
-        console.error("Ошибка получения статистики:", error)
-        res.status(500).json({ error: "Ошибка получения статистики" })
-      }
-    })
-
-    // Статистика для лобби
-    router.get("/lobby-stats", async (req, res) => {
-      try {
-        const dbStats = await this.db.getStats()
-        const wsStats = this.wsHandler.getStats()
-        const gameStats = this.gameEngine.getGameStats()
-
-        res.json({
-          onlineUsers: wsStats.connectedUsers,
-          activeRooms: wsStats.activeRooms,
-          activeGames: gameStats.activeGames,
-          uptime: process.uptime(),
-        })
-      } catch (error) {
-        console.error("Ошибка получения статистики лобби:", error)
-        res.status(500).json({ error: "Ошибка получения статистики" })
-      }
-    })
-
+    console.log("✅ API маршруты созданы")
     return router
   }
 
@@ -303,6 +248,7 @@ class MafiaGameServer {
         error: "Маршрут не найден",
         path: req.path,
         method: req.method,
+        timestamp: new Date().toISOString(),
       })
     })
 
@@ -312,303 +258,20 @@ class MafiaGameServer {
       console.error("Stack trace:", error.stack)
       res.status(500).json({
         error: "Внутренняя ошибка сервера",
-        message: process.env.NODE_ENV === "development" ? error.message : undefined,
+        message: error.message,
+        timestamp: new Date().toISOString(),
       })
     })
 
     console.log("✅ Обработка ошибок настроена")
   }
 
-  generateAdminPage() {
-    const stats = {
-      ...this.wsHandler.getStats(),
-      ...this.gameEngine.getGameStats(),
-    }
-
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>🎭 Mafia Game Server - Anubis Admin Panel</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            color: #333;
-        }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        .header { text-align: center; color: white; margin-bottom: 30px; }
-        .header h1 { font-size: 3em; margin-bottom: 10px; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
-        .header p { font-size: 1.2em; opacity: 0.9; }
-        .card { 
-            background: white; 
-            padding: 25px; 
-            margin: 20px 0; 
-            border-radius: 15px; 
-            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-            backdrop-filter: blur(10px);
-        }
-        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
-        .stat { 
-            text-align: center; 
-            padding: 25px; 
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white; 
-            border-radius: 15px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            transition: transform 0.3s ease;
-        }
-        .stat:hover { transform: translateY(-5px); }
-        .stat-value { font-size: 2.5em; font-weight: bold; margin-bottom: 10px; }
-        .stat-label { font-size: 1em; opacity: 0.9; }
-        h2 { color: #667eea; border-bottom: 3px solid #667eea; padding-bottom: 10px; margin-bottom: 20px; }
-        .btn { 
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white; 
-            border: none; 
-            padding: 12px 25px; 
-            border-radius: 8px; 
-            cursor: pointer;
-            font-size: 1em;
-            margin: 5px;
-            transition: all 0.3s ease;
-        }
-        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
-        .logs { 
-            background: #1a1a1a; 
-            color: #00ff00; 
-            padding: 20px; 
-            border-radius: 8px; 
-            font-family: 'Courier New', monospace;
-            max-height: 400px;
-            overflow-y: auto;
-            font-size: 0.9em;
-        }
-        .admin-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-        .control-group { background: #f8f9fa; padding: 20px; border-radius: 10px; }
-        .control-group h3 { color: #667eea; margin-bottom: 15px; }
-        input, select { 
-            width: 100%; 
-            padding: 10px; 
-            margin: 5px 0; 
-            border: 2px solid #ddd; 
-            border-radius: 5px;
-            font-size: 1em;
-        }
-        input:focus, select:focus { border-color: #667eea; outline: none; }
-        .god-badge { 
-            background: linear-gradient(45deg, #ffd700, #ffed4e);
-            color: #333;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-weight: bold;
-            display: inline-block;
-            margin-left: 10px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🎭 Mafia Game Server</h1>
-            <p>Панель управления великого бога <span class="god-badge">👑 Anubis</span></p>
-        </div>
-        
-        <div class="card">
-            <h2>📊 Статистика сервера</h2>
-            <div class="stats">
-                <div class="stat">
-                    <div class="stat-value">${stats.connectedUsers || 0}</div>
-                    <div class="stat-label">Подключенных пользователей</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value">${stats.activeRooms || 0}</div>
-                    <div class="stat-label">Активных комнат</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value">${stats.activeGames || 0}</div>
-                    <div class="stat-label">Активных игр</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value">${Math.floor(process.uptime() / 60)}</div>
-                    <div class="stat-label">Минут работы</div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="card">
-            <h2>⚡ Божественные полномочия</h2>
-            <div class="admin-controls">
-                <div class="control-group">
-                    <h3>💰 Управление монетами</h3>
-                    <input type="text" id="coinUser" placeholder="Никнейм игрока">
-                    <input type="number" id="coinAmount" placeholder="Количество монет">
-                    <button class="btn" onclick="giveCoins()">Выдать монеты</button>
-                    <button class="btn" onclick="takeCoins()">Забрать монеты</button>
-                </div>
-                
-                <div class="control-group">
-                    <h3>✨ Управление эффектами</h3>
-                    <input type="text" id="effectUser" placeholder="Никнейм игрока">
-                    <select id="effectType">
-                        <option value="rainbow">🌈 Радуга</option>
-                        <option value="glow">✨ Свечение</option>
-                        <option value="shake">📳 Тряска</option>
-                        <option value="bounce">⬆️ Подпрыгивание</option>
-                        <option value="fade">👻 Затухание</option>
-                    </select>
-                    <button class="btn" onclick="giveEffect()">Выдать эффект</button>
-                    <button class="btn" onclick="removeEffect()">Удалить эффект</button>
-                </div>
-            </div>
-        </div>
-        
-        <div class="card">
-            <h2>🔧 Управление сервером</h2>
-            <button class="btn" onclick="location.reload()">🔄 Обновить панель</button>
-            <button class="btn" onclick="getStats()">📊 Получить статистику</button>
-            <button class="btn" onclick="clearLogs()">🗑️ Очистить логи</button>
-        </div>
-        
-        <div class="card">
-            <h2>📝 Логи сервера</h2>
-            <div id="logs" class="logs">
-                ${new Date().toISOString()} - 🚀 Сервер запущен\\n
-                ${new Date().toISOString()} - 🔌 WebSocket сервер активен\\n
-                ${new Date().toISOString()} - 💾 База данных подключена\\n
-                ${new Date().toISOString()} - 👑 Великий бог Anubis получил божественные права
-            </div>
-        </div>
-    </div>
-    
-    <script>
-        // Автообновление каждые 30 секунд
-        setInterval(() => {
-            location.reload();
-        }, 30000);
-        
-        function giveCoins() {
-            const user = document.getElementById('coinUser').value;
-            const amount = parseInt(document.getElementById('coinAmount').value);
-            
-            if (!user || !amount) {
-                alert('Заполните все поля');
-                return;
-            }
-            
-            fetch('/api/admin/give-coins', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user, amount })
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    alert(\`Выдано \${amount} монет пользователю \${user}\`);
-                    document.getElementById('coinUser').value = '';
-                    document.getElementById('coinAmount').value = '';
-                } else {
-                    alert('Ошибка: ' + data.error);
-                }
-            })
-            .catch(err => alert('Ошибка: ' + err));
-        }
-        
-        function takeCoins() {
-            const user = document.getElementById('coinUser').value;
-            const amount = parseInt(document.getElementById('coinAmount').value);
-            
-            if (!user || !amount) {
-                alert('Заполните все поля');
-                return;
-            }
-            
-            giveCoins(-amount);
-        }
-        
-        function giveEffect() {
-            const user = document.getElementById('effectUser').value;
-            const effect = document.getElementById('effectType').value;
-            
-            if (!user || !effect) {
-                alert('Заполните все поля');
-                return;
-            }
-            
-            fetch('/api/admin/give-effect', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user, effect })
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    alert(\`Выдан эффект \${effect} пользователю \${user}\`);
-                    document.getElementById('effectUser').value = '';
-                } else {
-                    alert('Ошибка: ' + data.error);
-                }
-            })
-            .catch(err => alert('Ошибка: ' + err));
-        }
-        
-        function removeEffect() {
-            const user = document.getElementById('effectUser').value;
-            const effect = document.getElementById('effectType').value;
-            
-            if (!user || !effect) {
-                alert('Заполните все поля');
-                return;
-            }
-            
-            fetch('/api/admin/remove-effect', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user, effect })
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    alert(\`Удалён эффект \${effect} у пользователя \${user}\`);
-                    document.getElementById('effectUser').value = '';
-                } else {
-                    alert('Ошибка: ' + data.error);
-                }
-            })
-            .catch(err => alert('Ошибка: ' + err));
-        }
-        
-        function getStats() {
-            fetch('/api/stats')
-            .then(r => r.json())
-            .then(data => {
-                console.log('Статистика сервера:', data);
-                alert('Статистика выведена в консоль');
-            })
-            .catch(err => alert('Ошибка: ' + err));
-        }
-        
-        function clearLogs() {
-            document.getElementById('logs').innerHTML = 
-                new Date().toISOString() + ' - 🗑️ Логи очищены великим богом Anubis';
-        }
-    </script>
-</body>
-</html>
-    `
-  }
-
   async start() {
     try {
-      console.log("🚀 ЗАПУСК MAFIA GAME SERVER...")
+      console.log("🚀🚀🚀 ЗАПУСК MAFIA GAME SERVER 🚀🚀🚀")
       console.log("=" * 100)
       console.log(`🌍 NODE_ENV: ${process.env.NODE_ENV}`)
       console.log(`🔌 PORT: ${this.port}`)
-      console.log(`💾 DB Path: ${this.db.dbPath}`)
       console.log(`🕐 Время запуска: ${new Date().toISOString()}`)
       console.log("=" * 100)
 
@@ -617,30 +280,39 @@ class MafiaGameServer {
       await this.db.init()
       console.log("✅ База данных инициализирована")
 
-      // Запускаем сервер
-      console.log(`🚀 Запуск HTTP сервера на порту ${this.port}...`)
-
+      // Настраиваем обработчики событий сервера
       this.server.on("listening", () => {
-        console.log("🎉 HTTP СЕРВЕР ЗАПУЩЕН!")
+        console.log("🎉🎉🎉 HTTP СЕРВЕР ЗАПУЩЕН! 🎉🎉🎉")
         console.log("=" * 100)
         console.log(`🚀 Mafia Game Server работает на порту ${this.port}`)
-        console.log(`👑 Великий бог Anubis правит сервером!`)
-        console.log(`📊 Админ панель: http://localhost:${this.port}/admin`)
-        console.log(`🔌 WebSocket: ws://localhost:${this.port}`)
-        console.log(`🌐 API: http://localhost:${this.port}/api`)
+        console.log(`🌐 HTTP: http://localhost:${this.port}`)
         console.log(`🏥 Health: http://localhost:${this.port}/health`)
+        console.log(`🧪 Test: http://localhost:${this.port}/test`)
+        console.log(`🔌 WebSocket: ws://localhost:${this.port}`)
         console.log("=" * 100)
       })
 
       this.server.on("error", (error) => {
-        console.error("❌ ОШИБКА HTTP СЕРВЕРА:", error)
+        console.error("❌❌❌ ОШИБКА HTTP СЕРВЕРА ❌❌❌")
+        console.error("Ошибка:", error)
+        console.error("Stack:", error.stack)
         if (error.code === "EADDRINUSE") {
           console.error(`❌ Порт ${this.port} уже используется!`)
+          console.error("Попробуйте другой порт или убейте процесс на этом порту")
         }
+        process.exit(1)
       })
 
+      this.server.on("connection", (socket) => {
+        console.log(`🔌 Новое TCP соединение от ${socket.remoteAddress}:${socket.remotePort}`)
+      })
+
+      // Запускаем сервер
+      console.log(`🚀 Запуск HTTP сервера на порту ${this.port}...`)
+      console.log(`🎯 Слушаем на 0.0.0.0:${this.port}`)
+
       this.server.listen(this.port, "0.0.0.0", () => {
-        console.log(`🎯 Сервер слушает на 0.0.0.0:${this.port}`)
+        console.log(`✅ Сервер успешно запущен и слушает на 0.0.0.0:${this.port}`)
       })
 
       // Обработка сигналов завершения
@@ -649,19 +321,32 @@ class MafiaGameServer {
         this.shutdown()
       })
       process.on("SIGINT", () => {
-        console.log("🛑 Получен сигнал SIGINT")
+        console.log("🛑 Получен сигнал SIGINT (Ctrl+C)")
         this.shutdown()
       })
 
-      // Логируем каждые 30 секунд статистику
+      // Логируем статистику каждые 30 секунд
       setInterval(() => {
-        const stats = this.wsHandler.getStats()
         console.log(
-          `📊 СТАТИСТИКА: Подключений: ${stats.connectedUsers}, Комнат: ${stats.activeRooms}, Время работы: ${Math.floor(process.uptime())}с`,
+          `📊 СТАТИСТИКА: Время работы: ${Math.floor(process.uptime())}с, Память: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
         )
       }, 30000)
+
+      // Тестовый запрос к самому себе через 5 секунд
+      setTimeout(() => {
+        console.log("🧪 Выполняем тестовый запрос к самому себе...")
+        fetch(`http://localhost:${this.port}/health`)
+          .then((response) => response.json())
+          .then((data) => {
+            console.log("✅ Тестовый запрос успешен:", data)
+          })
+          .catch((error) => {
+            console.error("❌ Тестовый запрос failed:", error)
+          })
+      }, 5000)
     } catch (error) {
-      console.error("❌ КРИТИЧЕСКАЯ ОШИБКА запуска сервера:", error)
+      console.error("❌❌❌ КРИТИЧЕСКАЯ ОШИБКА запуска сервера ❌❌❌")
+      console.error("Ошибка:", error)
       console.error("Stack trace:", error.stack)
       process.exit(1)
     }
@@ -694,9 +379,24 @@ class MafiaGameServer {
   }
 }
 
+// ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ОШИБОК
+process.on("uncaughtException", (error) => {
+  console.error("❌❌❌ UNCAUGHT EXCEPTION ❌❌❌")
+  console.error("Ошибка:", error)
+  console.error("Stack:", error.stack)
+  process.exit(1)
+})
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("❌❌❌ UNHANDLED REJECTION ❌❌❌")
+  console.error("Reason:", reason)
+  console.error("Promise:", promise)
+  process.exit(1)
+})
+
 // Запуск сервера
 if (require.main === module) {
-  console.log("🎬 СТАРТ ПРИЛОЖЕНИЯ")
+  console.log("🎬🎬🎬 СТАРТ ПРИЛОЖЕНИЯ 🎬🎬🎬")
   const server = new MafiaGameServer()
   server.start()
 }
