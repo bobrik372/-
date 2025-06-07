@@ -1,6 +1,10 @@
+console.log("📦 Загрузка GameEngine модуля...")
+
 class GameEngine {
   constructor() {
+    console.log("🎮 Создание GameEngine...")
     this.games = new Map() // roomId -> game state
+    console.log("✅ GameEngine создан")
   }
 
   async startGame(room, database) {
@@ -335,9 +339,9 @@ class GameEngine {
   getGameStats() {
     return {
       activeGames: this.games.size,
-      totalGamesPlayed: 0, // Можно добавить счётчик
     }
   }
 }
 
+console.log("✅ GameEngine модуль загружен")
 module.exports = GameEngine

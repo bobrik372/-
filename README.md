@@ -1,30 +1,56 @@
-# gliterrokmain9
+# 🎭 Mafia Game Server
 
-*Automatically synced with your [v0.dev](https://v0.dev) deployments*
+Многопользовательская игра "Мафия" с WebSocket сервером.
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/bobrik372s-projects/v0-gliterrokmain9)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.dev-black?style=for-the-badge)](https://v0.dev/chat/projects/Zve8tPo2pu3)
+## 🚀 Деплой на Render
 
-## Overview
+### Настройки для Render:
 
-This repository will stay in sync with your deployed chats on [v0.dev](https://v0.dev).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.dev](https://v0.dev).
+- **Build Command**: `cd server && npm install`
+- **Start Command**: `cd server && npm start`
+- **Root Directory**: оставить пустым
+- **Environment**: Node.js
+- **Node Version**: 18.x или выше
 
-## Deployment
+### Переменные окружения:
 
-Your project is live at:
+- `NODE_ENV=production`
+- `PORT` - автоматически устанавливается Render
 
-**[https://vercel.com/bobrik372s-projects/v0-gliterrokmain9](https://vercel.com/bobrik372s-projects/v0-gliterrokmain9)**
+## 📁 Структура проекта
 
-## Build your app
+\`\`\`
+/
+├── server/           # Node.js сервер
+│   ├── server.js     # Главный файл сервера
+│   ├── package.json  # Зависимости сервера
+│   └── ...
+├── app/             # Android приложение
+└── src/             # React компоненты
+\`\`\`
 
-Continue building your app on:
+## 🔧 Локальная разработка
 
-**[https://v0.dev/chat/projects/Zve8tPo2pu3](https://v0.dev/chat/projects/Zve8tPo2pu3)**
+\`\`\`bash
+# Установка зависимостей сервера
+cd server
+npm install
 
-## How It Works
+# Запуск сервера
+npm start
 
-1. Create and modify your project using [v0.dev](https://v0.dev)
-2. Deploy your chats from the v0 interface
-3. Changes are automatically pushed to this repository
-4. Vercel deploys the latest version from this repository
+# Разработка с автоперезагрузкой
+npm run dev
+\`\`\`
+
+## 🌐 API Endpoints
+
+- `GET /` - Информация о сервере
+- `GET /health` - Health check
+- `GET /test` - Тестовый endpoint
+- `WS /` - WebSocket соединение
+
+## 👑 Админ
+
+- Никнейм: `Anubis`
+- Пароль: `anubis_god_password`

@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: mafia-game-server
+    env: node
+    plan: free
+    buildCommand: cd server && npm install
+    startCommand: cd server && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+    autoDeploy: true
