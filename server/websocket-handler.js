@@ -36,6 +36,13 @@ class WebSocketHandler {
       console.log(`🕐 Время: ${new Date().toISOString()}`)
       console.log("=" * 80)
 
+      // Инициализируем пользователя как неавторизованного
+      this.users.set(ws, {
+        isAuthenticated: false,
+        nickname: null,
+        currentRoom: null,
+      })
+
       ws.on("message", async (message) => {
         try {
           console.log(`📨 RAW MESSAGE от ${clientIP}:`, message.toString())
@@ -74,10 +81,11 @@ class WebSocketHandler {
 
   async handleMessage(ws, data) {
     const user = this.users.get(ws)
-    const userInfo = user ? `${user.nickname} (${user.isAuthenticated ? "auth" : "unauth"})` : "unknown"
+    const userInfo = user && user.isAuthenticated ? `${user.nickname} (auth)` : "unknown"
 
     console.log(`📨 ОБРАБОТКА СООБЩЕНИЯ ${data.type} от ${userInfo}`)
     console.log(`📦 Данные:`, JSON.stringify(data, null, 2))
+    console.log(`👤 Пользователь в памяти:`, user)
 
     try {
       switch (data.type) {
@@ -95,10 +103,16 @@ class WebSocketHandler {
           break
         case "createRoom":
           console.log(`🏗️ Создание комнаты от ${userInfo}`)
+          if (!user || !user.isAuthenticated) {
+            return this.sendError(ws, "Вы не авторизованы")
+          }
           await this.createRoom(ws, data.room)
           break
         case "joinRoom":
           console.log(`🚪 Присоединение к комнате ${data.roomId} от ${userInfo}`)
+          if (!user || !user.isAuthenticated) {
+            return this.sendError(ws, "Вы не авторизованы")
+          }
           await this.joinRoom(ws, data.roomId, data.password)
           break
         case "leaveRoom":
@@ -123,6 +137,9 @@ class WebSocketHandler {
           break
         case "adminAction":
           console.log(`👑 Админское действие от ${userInfo}`)
+          if (!user || !user.isAuthenticated) {
+            return this.sendError(ws, "Вы не авторизованы")
+          }
           await this.handleAdminAction(ws, data)
           break
         case "ping":
@@ -149,8 +166,117 @@ class WebSocketHandler {
     }
   }
 
+  async handleRegister(ws, data) {
+    try {
+      console.log(`🔍 Начинаем регистрацию для ${data.nickname}`)
+      const { nickname, password, avatar } = data
+
+      if (!nickname || !password) {
+        console.log("❌ Нет никнейма или пароля")
+        return this.sendError(ws, "Никнейм и пароль обязательны")
+      }
+
+      if (nickname.length < 3 || nickname.length > 20) {
+        console.log("❌ Неверная длина никнейма")
+        return this.sendError(ws, "Никнейм должен быть от 3 до 20 символов")
+      }
+
+      if (password.length < 4) {
+        console.log("❌ Короткий пароль")
+        return this.sendError(ws, "Пароль должен быть минимум 4 символа")
+      }
+
+      console.log(`🔍 Вызываем db.createUser для ${nickname}`)
+      const user = await this.db.createUser({ nickname, password, avatar })
+      console.log(`✅ Пользователь создан:`, user)
+
+      this.send(ws, {
+        type: "registerSuccess",
+        message: "Регистрация успешна! Теперь войдите в систему.",
+      })
+
+      console.log(`✅ Пользователь ${nickname} успешно зарегистрирован`)
+    } catch (error) {
+      console.error("❌ Ошибка регистрации:", error)
+      this.sendError(ws, error.message)
+    }
+  }
+
+  async handleLogin(ws, data) {
+    try {
+      console.log(`🔍 Начинаем логин для ${data.nickname}`)
+      const { nickname, password } = data
+
+      if (!nickname || !password) {
+        console.log("❌ Нет никнейма или пароля")
+        return this.sendError(ws, "Никнейм и пароль обязательны")
+      }
+
+      console.log(`🔍 Вызываем db.loginUser для ${nickname}`)
+      const user = await this.db.loginUser(nickname, password)
+      console.log(`🔍 Результат db.loginUser:`, user)
+
+      if (!user) {
+        console.log("❌ Пользователь не найден")
+        return this.sendError(ws, "Неверный никнейм или пароль")
+      }
+
+      // Отключаем предыдущее соединение если есть
+      const existingWs = this.usersByNickname.get(nickname)
+      if (existingWs && existingWs !== ws) {
+        console.log(`🔄 Отключение предыдущего соединения для ${nickname}`)
+        this.send(existingWs, {
+          type: "kicked",
+          reason: "Вход с другого устройства",
+        })
+        existingWs.close()
+      }
+
+      // Сохраняем пользователя
+      const userData = {
+        ...user,
+        currentRoom: null,
+        isAuthenticated: true,
+      }
+
+      console.log(`💾 Сохраняем пользователя в память:`, userData)
+      this.users.set(ws, userData)
+      this.usersByNickname.set(nickname, ws)
+
+      const loginResponse = {
+        type: "loginSuccess",
+        user: {
+          nickname: user.nickname,
+          avatar: user.avatar,
+          coins: user.coins,
+          nickname_effects: user.nickname_effects,
+          games_played: user.games_played,
+          games_won: user.games_won,
+          games_survived: user.games_survived,
+          is_admin: user.is_admin,
+        },
+      }
+
+      console.log(`📤 Отправляем ответ логина:`, loginResponse)
+      this.send(ws, loginResponse)
+
+      console.log(`✅ Пользователь авторизован: ${nickname}`)
+      console.log(`📊 Всего авторизованных: ${Array.from(this.users.values()).filter((u) => u.isAuthenticated).length}`)
+    } catch (error) {
+      console.error("❌ Ошибка входа:", error)
+      this.sendError(ws, "Ошибка входа в систему")
+    }
+  }
+
   handleDisconnect(ws) {
-    console.log("👋 Пользователь отключился")
+    const user = this.users.get(ws)
+    if (user && user.nickname) {
+      console.log(`👋 Пользователь отключился: ${user.nickname}`)
+      this.usersByNickname.delete(user.nickname)
+    } else {
+      console.log("👋 Неизвестный пользователь отключился")
+    }
+    this.users.delete(ws)
   }
 
   send(ws, data) {
@@ -175,93 +301,6 @@ class WebSocketHandler {
     return {
       connectedUsers: this.users.size,
       activeRooms: this.rooms.size,
-    }
-  }
-
-  async handleRegister(ws, data) {
-    try {
-      const { nickname, password, avatar } = data
-
-      if (!nickname || !password) {
-        return this.sendError(ws, "Никнейм и пароль обязательны")
-      }
-
-      if (nickname.length < 3 || nickname.length > 20) {
-        return this.sendError(ws, "Никнейм должен быть от 3 до 20 символов")
-      }
-
-      if (password.length < 4) {
-        return this.sendError(ws, "Пароль должен быть минимум 4 символа")
-      }
-
-      const user = await this.db.createUser({ nickname, password, avatar })
-
-      this.send(ws, {
-        type: "registerSuccess",
-        message: "Регистрация успешна! Теперь войдите в систему.",
-      })
-
-      console.log(`✅ Пользователь ${nickname} успешно зарегистрирован`)
-    } catch (error) {
-      console.error("Ошибка регистрации:", error)
-      this.sendError(ws, error.message)
-    }
-  }
-
-  async handleLogin(ws, data) {
-    try {
-      const { nickname, password } = data
-
-      if (!nickname || !password) {
-        return this.sendError(ws, "Никнейм и пароль обязательны")
-      }
-
-      const user = await this.db.loginUser(nickname, password)
-
-      if (!user) {
-        return this.sendError(ws, "Неверный никнейм или пароль")
-      }
-
-      // Отключаем предыдущее соединение если есть
-      const existingWs = this.usersByNickname.get(nickname)
-      if (existingWs && existingWs !== ws) {
-        console.log(`🔄 Отключение предыдущего соединения для ${nickname}`)
-        this.send(existingWs, {
-          type: "kicked",
-          reason: "Вход с другого устройства",
-        })
-        existingWs.close()
-      }
-
-      // Сохраняем пользователя
-      this.users.set(ws, {
-        ...user,
-        currentRoom: null,
-        isAuthenticated: true,
-      })
-      this.usersByNickname.set(nickname, ws)
-
-      const loginResponse = {
-        type: "loginSuccess",
-        user: {
-          nickname: user.nickname,
-          avatar: user.avatar,
-          coins: user.coins,
-          nickname_effects: user.nickname_effects,
-          games_played: user.games_played,
-          games_won: user.games_won,
-          games_survived: user.games_survived,
-          is_admin: user.is_admin,
-        },
-      }
-
-      this.send(ws, loginResponse)
-
-      console.log(`✅ Пользователь авторизован: ${nickname}`)
-      console.log(`📊 Всего авторизованных: ${Array.from(this.users.values()).filter((u) => u.isAuthenticated).length}`)
-    } catch (error) {
-      console.error("Ошибка входа:", error)
-      this.sendError(ws, "Ошибка входа в систему")
     }
   }
 
