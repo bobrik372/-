@@ -5,6 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🎭 Mafia Game</title>
     <style>
+        /* ОТКЛЮЧЕНИЕ PULL-TO-REFRESH */
+        html, body {
+            overscroll-behavior: none;
+            -webkit-overflow-scrolling: touch;
+            touch-action: pan-x pan-y;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        /* Отключаем выделение текста и контекстное меню */
+        * {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Разрешаем выделение только в полях ввода */
+        input, textarea {
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -179,9 +207,9 @@
         /* Игровая комната */
         .game-room {
             display: grid;
-            grid-template-columns: 1fr 300px;
+            grid-template-columns: 1fr 350px;
             gap: 20px;
-            height: 80vh;
+            height: 85vh;
         }
 
         .game-main {
@@ -248,6 +276,11 @@
         .player-nickname {
             font-weight: bold;
             margin-bottom: 5px;
+            cursor: pointer;
+        }
+
+        .player-nickname:hover {
+            color: #667eea;
         }
 
         .player-role {
@@ -276,6 +309,7 @@
             display: flex;
             flex-direction: column;
             height: 100%;
+            max-height: 85vh;
         }
 
         .chat-messages {
@@ -285,7 +319,8 @@
             padding: 15px;
             overflow-y: auto;
             margin-bottom: 15px;
-            max-height: 400px;
+            max-height: 60vh;
+            min-height: 300px;
         }
 
         .message {
@@ -629,8 +664,8 @@
             50% { opacity: 0.8; }
         }
 
-        /* Исправления для админского меню */
-        .admin-controls {
+        /* Админские контролы только в комнате */
+        .room-admin-controls {
             background: #fff3cd;
             border: 2px solid #ffeaa7;
             border-radius: 10px;
@@ -638,11 +673,10 @@
             margin: 15px 0;
         }
 
-        .admin-controls h3 {
+        .room-admin-controls h3 {
             color: #856404;
             margin-bottom: 15px;
             font-size: 1.1em;
-            word-wrap: break-word;
         }
 
         .admin-input {
@@ -725,6 +759,14 @@
             .container {
                 padding: 10px;
             }
+
+            .chat-container {
+                max-height: 50vh;
+            }
+
+            .chat-messages {
+                max-height: 30vh;
+            }
         }
 
         /* Админские стили */
@@ -778,19 +820,6 @@
             opacity: 0.9;
         }
 
-        .admin-section {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 15px;
-        }
-
-        .admin-section h4 {
-            color: #667eea;
-            margin-bottom: 10px;
-            font-size: 1em;
-        }
-
         .rooms-grid {
             animation: fadeIn 0.5s ease-in;
         }
@@ -804,6 +833,89 @@
             0% { transform: translate(-50%, -50%) scale(1); }
             50% { transform: translate(-50%, -50%) scale(1.05); }
             100% { transform: translate(-50%, -50%) scale(1); }
+        }
+
+        /* Модальное окно профиля */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: #999;
+        }
+
+        .modal-close:hover {
+            color: #333;
+        }
+
+        .profile-avatar {
+            font-size: 4em;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+
+        .profile-nickname {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .profile-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .profile-stat {
+            text-align: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .profile-stat-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .profile-stat-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
         }
     </style>
 </head>
@@ -847,7 +959,7 @@
                     </div>
                     <div class="form-group">
                         <label for="avatarFile">Или загрузите изображение:</label>
-                        <input type="file" id="avatarFile" accept="image/*">
+                        <input type="file" id="avatarFile" accept="image/*" onchange="handleAvatarUpload(this)">
                     </div>
                     <button class="btn" onclick="register()">Зарегистрироваться</button>
                     <button class="btn btn-secondary" onclick="showLoginForm()">Назад к входу</button>
@@ -879,40 +991,6 @@
                 </div>
             </div>
 
-            <!-- Админские контролы для Anubis -->
-            <div id="adminControls" class="admin-controls hidden">
-                <h3>👑 Божественные полномочия Anubis</h3>
-                <div class="admin-input">
-                    <input type="text" id="adminTargetUser" placeholder="Никнейм игрока">
-                    <input type="number" id="adminCoinsAmount" placeholder="Количество монет">
-                    <button class="btn btn-success" onclick="adminGiveCoins()">Выдать монеты</button>
-                </div>
-                <div class="admin-input">
-                    <input type="text" id="adminEffectUser" placeholder="Никнейм игрока">
-                    <select id="adminEffectType">
-                        <option value="rainbow">🌈 Радуга</option>
-                        <option value="glow">✨ Свечение</option>
-                        <option value="shake">📳 Тряска</option>
-                        <option value="bounce">⬆️ Подпрыгивание</option>
-                        <option value="fade">👻 Затухание</option>
-                        <option value="fire">🔥 Огонь</option>
-                        <option value="ice">❄️ Лёд</option>
-                        <option value="electric">⚡ Электричество</option>
-                        <option value="matrix">🔢 Матрица</option>
-                        <option value="neon">💜 Неон</option>
-                        <option value="gold">👑 Золото</option>
-                        <option value="shadow">🌑 Тень</option>
-                        <option value="wave">🌊 Волна</option>
-                        <option value="flip">🔄 Переворот</option>
-                        <option value="zoom">🔍 Увеличение</option>
-                        <option value="bg_stars">⭐ Звёздный фон</option>
-                        <option value="bg_gradient">🌈 Градиентный фон</option>
-                        <option value="bg_pulse">💓 Пульсирующий фон</option>
-                    </select>
-                    <button class="btn btn-success" onclick="adminGiveEffect()">Выдать эффект</button>
-                </div>
-            </div>
-
             <!-- Красивое лобби -->
             <div class="lobby-stats card">
                 <h3 style="color: #667eea; margin-bottom: 15px;">📊 Статистика сервера</h3>
@@ -929,11 +1007,6 @@
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon">🎮</div>
-                        <div class="stat-value" id="activeRooms">0</div>
-                        <div class="stat-label">Комнат</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon">🎮</div>
                         <div class="stat-value" id="activeGames">0</div>
                         <div class="stat-label">Игр</div>
                     </div>
@@ -941,50 +1014,6 @@
                         <div class="stat-icon">⏰</div>
                         <div class="stat-value" id="serverUptime">0</div>
                         <div class="stat-label">Часов работы</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Расширенное админ-меню для Anubis -->
-            <div id="adminControlsExtended" class="admin-controls hidden">
-                <h3>👑 Божественная панель управления Anubis</h3>
-                
-                <div class="admin-section">
-                    <h4>🤖 Управление ботами</h4>
-                    <div class="admin-input">
-                        <input type="text" id="botName" placeholder="Имя бота">
-                        <select id="botAvatar">
-                            <option value="🤖">🤖 Робот</option>
-                            <option value="👾">👾 Пришелец</option>
-                            <option value="🎭">🎭 Актёр</option>
-                            <option value="🦾">🦾 Киборг</option>
-                            <option value="👻">👻 Призрак</option>
-                        </select>
-                        <button class="btn btn-success" onclick="adminAddBot()">Добавить бота</button>
-                    </div>
-                    <div class="admin-input">
-                        <input type="text" id="removeBotName" placeholder="Имя бота для удаления">
-                        <button class="btn btn-danger" onclick="adminRemoveBot()">Удалить бота</button>
-                    </div>
-                </div>
-
-                <div class="admin-section">
-                    <h4>🎮 Управление играми</h4>
-                    <div class="admin-input">
-                        <input type="text" id="forceEndRoom" placeholder="ID комнаты">
-                        <button class="btn btn-danger" onclick="adminForceEndGame()">Завершить игру</button>
-                    </div>
-                    <div class="admin-input">
-                        <button class="btn btn-warning" onclick="adminRestartServer()">🔄 Перезапустить сервер</button>
-                        <button class="btn" onclick="adminGetLogs()">📋 Получить логи</button>
-                    </div>
-                </div>
-
-                <div class="admin-section">
-                    <h4>📢 Объявления</h4>
-                    <div class="admin-input">
-                        <input type="text" id="announcementText" placeholder="Текст объявления">
-                        <button class="btn" onclick="adminSendAnnouncement()">Отправить всем</button>
                     </div>
                 </div>
             </div>
@@ -1068,6 +1097,29 @@
                         <h3 id="actionTitle">Выберите действие</h3>
                         <div id="actionButtons" style="display: flex; gap: 10px; margin-top: 15px;">
                             <!-- Кнопки действий будут добавлены динамически -->
+                        </div>
+                    </div>
+
+                    <!-- Админские контролы в комнате -->
+                    <div id="roomAdminControls" class="room-admin-controls hidden">
+                        <h3>👑 Админские функции</h3>
+                        <div class="admin-input">
+                            <input type="text" id="roomBotName" placeholder="Имя бота">
+                            <select id="roomBotAvatar">
+                                <option value="🤖">🤖 Робот</option>
+                                <option value="👾">👾 Пришелец</option>
+                                <option value="🎭">🎭 Актёр</option>
+                                <option value="🦾">🦾 Киборг</option>
+                                <option value="👻">👻 Призрак</option>
+                            </select>
+                            <button class="btn btn-success" onclick="adminAddBot()">Добавить бота</button>
+                        </div>
+                        <div class="admin-input">
+                            <input type="text" id="roomRemoveBotName" placeholder="Имя бота для удаления">
+                            <button class="btn btn-danger" onclick="adminRemoveBot()">Удалить бота</button>
+                        </div>
+                        <div class="admin-input">
+                            <button class="btn btn-danger" onclick="adminForceEndGame()">Завершить игру</button>
                         </div>
                     </div>
                 </div>
@@ -1213,6 +1265,19 @@
                 </div>
             </div>
         </div>
+
+        <!-- Модальное окно профиля -->
+        <div id="profileModal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>👤 Профиль игрока</h2>
+                    <button class="modal-close" onclick="hideProfileModal()">&times;</button>
+                </div>
+                <div id="profileContent">
+                    <!-- Содержимое профиля будет загружено динамически -->
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -1226,9 +1291,23 @@
         let maxReconnectAttempts = 10;
         let reconnectInterval = null;
         let isConnecting = false;
+        let deviceId = null;
+        let sessionId = null;
 
         // WebSocket URL - замените на ваш сервер
         const WS_URL = 'wss://gliterrok-2.onrender.com';
+
+        // Генерация deviceId
+        function generateDeviceId() {
+            if (!deviceId) {
+                deviceId = localStorage.getItem('mafia_device_id');
+                if (!deviceId) {
+                    deviceId = 'device_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                    localStorage.setItem('mafia_device_id', deviceId);
+                }
+            }
+            return deviceId;
+        }
 
         // Улучшенная система сохранения сессии
         function saveUserSession() {
@@ -1240,6 +1319,8 @@
                     },
                     room: currentRoom,
                     gameState: gameState,
+                    deviceId: deviceId,
+                    sessionId: sessionId,
                     timestamp: Date.now()
                 };
                 localStorage.setItem('mafiaGame_session', JSON.stringify(sessionData));
@@ -1257,6 +1338,8 @@
                         currentUser = sessionData.user;
                         currentRoom = sessionData.room;
                         gameState = sessionData.gameState;
+                        deviceId = sessionData.deviceId;
+                        sessionId = sessionData.sessionId;
                         console.log('✅ Сессия восстановлена:', currentUser.nickname);
                         return true;
                     } else {
@@ -1279,6 +1362,9 @@
         document.addEventListener('DOMContentLoaded', function() {
             console.log('🚀 Инициализация приложения');
             
+            // Генерируем deviceId
+            generateDeviceId();
+            
             // Пытаемся восстановить сессию
             if (loadUserSession()) {
                 showNotification('Восстанавливаем сессию...', 'success');
@@ -1294,6 +1380,30 @@
             
             // Обработчики событий
             setupEventListeners();
+
+            // ОТКЛЮЧЕНИЕ PULL-TO-REFRESH
+            document.addEventListener('touchstart', function(e) {
+                if (e.touches.length > 1) {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+
+            document.addEventListener('touchmove', function(e) {
+                // Блокируем скролл вверх когда страница в самом верху
+                if (window.scrollY === 0 && e.touches[0].clientY > e.touches[0].pageY) {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+
+            // Отключаем контекстное меню
+            document.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+            });
+
+            // Отключаем долгое нажатие
+            document.addEventListener('selectstart', function(e) {
+                e.preventDefault();
+            });
             
             // Автосохранение сессии каждые 30 секунд
             setInterval(saveUserSession, 30000);
@@ -1346,6 +1456,14 @@
                     connectWebSocket();
                 }
             });
+
+            // Закрытие модального окна по клику вне его
+            document.addEventListener('click', function(e) {
+                const modal = document.getElementById('profileModal');
+                if (e.target === modal) {
+                    hideProfileModal();
+                }
+            });
         }
 
         // Улучшенная система WebSocket с автореконектом
@@ -1387,18 +1505,11 @@
                             sendWebSocketMessage({
                                 type: 'login',
                                 nickname: currentUser.nickname,
-                                password: currentUser.password
+                                password: currentUser.password,
+                                deviceId: deviceId,
+                                userAgent: navigator.userAgent,
+                                ip: 'unknown'
                             });
-                        }
-                        
-                        // Если были в комнате, пытаемся переподключиться
-                        if (currentRoom && currentRoom.id) {
-                            setTimeout(() => {
-                                sendWebSocketMessage({
-                                    type: 'rejoinRoom',
-                                    roomId: currentRoom.id
-                                });
-                            }, 1000);
                         }
                     }
                 };
@@ -1460,6 +1571,8 @@
 
                 case 'loginSuccess':
                     currentUser = data.user;
+                    deviceId = data.deviceId;
+                    sessionId = data.sessionId;
                     saveUserSession();
                     showMainMenu();
                     showNotification(`Добро пожаловать, ${currentUser.nickname}!`, 'success');
@@ -1486,17 +1599,23 @@
                     break;
 
                 case 'gameStarted':
-                    gameState = {
-                        phase: data.phase,
-                        day: data.day || 1,
-                        timeLeft: data.timeLeft || 60
-                    };
-                    saveUserSession();
-                    updateGameRoom();
-                    showNotification('🎮 Игра началась!', 'success');
+                    if (currentRoom) {
+                        currentRoom = data.room;
+                        gameState = currentRoom.game;
+                        saveUserSession();
+                        updateGameRoom();
+                        showNotification('🎮 Игра началась!', 'success');
+                    }
                     break;
 
-                case 'gameUpdated':
+                case 'roleAssigned':
+                    showNotification(`🎭 Ваша роль: ${getRoleName(data.role)}`, 'success');
+                    if (data.mafiaMembers) {
+                        showNotification(`🔫 Мафия: ${data.mafiaMembers.join(', ')}`, 'warning');
+                    }
+                    break;
+
+                case 'gameUpdate':
                     gameState = data.game;
                     saveUserSession();
                     updateGameRoom();
@@ -1513,12 +1632,23 @@
                     addChatMessage(data);
                     break;
 
+                case 'clearChat':
+                    clearChatMessages();
+                    break;
+
                 case 'effectBought':
                     currentUser.coins = data.coins;
                     currentUser.nickname_effects = data.nickname_effects;
                     saveUserSession();
                     updateUserProfile();
-                    showNotification(`✨ Эффект "${data.effect}" куплен!`, 'success');
+                    showNotification(`✨ Эффект куплен!`, 'success');
+                    break;
+
+                case 'userUpdated':
+                    // Обновляем данные пользователя
+                    Object.assign(currentUser, data.user);
+                    saveUserSession();
+                    updateUserProfile();
                     break;
 
                 case 'avatarUpdated':
@@ -1558,7 +1688,7 @@
                     break;
 
                 case 'botAdded':
-                    showNotification(`🤖 Бот "${data.botName}" добавлен`, 'success');
+                    showNotification(`🤖 Бот добавлен`, 'success');
                     if (currentRoom) {
                         updateGameRoom();
                     }
@@ -1579,6 +1709,10 @@
 
                 case 'autoStartCancelled':
                     hideAutoStartTimer();
+                    break;
+
+                case 'userProfile':
+                    showUserProfile(data.profile);
                     break;
 
                 default:
@@ -1674,7 +1808,10 @@
             sendWebSocketMessage({
                 type: 'login',
                 nickname: nickname,
-                password: password
+                password: password,
+                deviceId: deviceId,
+                userAgent: navigator.userAgent,
+                ip: 'unknown'
             });
         }
 
@@ -1700,12 +1837,6 @@
             updateUserProfile();
             loadRooms();
 
-            // Показываем админские контролы для админов
-            if (currentUser && currentUser.is_admin) {
-                document.getElementById('adminControls').classList.remove('hidden');
-                document.getElementById('adminControlsExtended').classList.remove('hidden');
-            }
-
             // Запрашиваем статистику
             sendWebSocketMessage({ type: 'getStats' });
         }
@@ -1713,6 +1844,11 @@
         function showGameRoom() {
             hideAllScreens();
             document.getElementById('gameRoom').classList.remove('hidden');
+            
+            // Показываем админские контролы в комнате если пользователь админ
+            if (currentUser && currentUser.is_admin) {
+                document.getElementById('roomAdminControls').classList.remove('hidden');
+            }
         }
 
         function showShop() {
@@ -1736,6 +1872,41 @@
                     element.classList.add('hidden');
                 }
             });
+        }
+
+        // Загрузка аватара
+        function handleAvatarUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            if (file.size > 1024 * 1024) { // 1MB
+                showNotification('Файл слишком большой (максимум 1MB)', 'error');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Ресайзим до 64x64
+                    canvas.width = 64;
+                    canvas.height = 64;
+                    
+                    ctx.drawImage(img, 0, 0, 64, 64);
+                    
+                    // Конвертируем в base64
+                    const dataURL = canvas.toDataURL('image/png');
+                    
+                    // Устанавливаем как аватар
+                    document.getElementById('registerAvatar').value = dataURL;
+                    showNotification('Аватар загружен!', 'success');
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
         }
 
         // Применение эффектов никнейма
@@ -1783,10 +1954,26 @@
                     nicknameElement.innerHTML += '<span class="admin-badge">👑 БОГ</span>';
                 }
             }
-
+            
             if (coinsElement) coinsElement.textContent = `💰 ${currentUser.coins} монет`;
             if (gamesPlayedElement) gamesPlayedElement.textContent = currentUser.games_played || 0;
             if (gamesWonElement) gamesWonElement.textContent = currentUser.games_won || 0;
+        }
+
+        // Обновление статистики лобби
+        function updateLobbyStats(stats) {
+            const onlineUsersElement = document.getElementById('onlineUsers');
+            const activeRoomsElement = document.getElementById('activeRooms');
+            const activeGamesElement = document.getElementById('activeGames');
+            const serverUptimeElement = document.getElementById('serverUptime');
+
+            if (onlineUsersElement) onlineUsersElement.textContent = stats.onlineUsers || 0;
+            if (activeRoomsElement) activeRoomsElement.textContent = stats.activeRooms || 0;
+            if (activeGamesElement) activeGamesElement.textContent = stats.activeGames || 0;
+            if (serverUptimeElement) {
+                const hours = Math.floor((stats.uptime || 0) / 3600);
+                serverUptimeElement.textContent = hours;
+            }
         }
 
         // Комнаты
@@ -1798,48 +1985,29 @@
             const roomsList = document.getElementById('roomsList');
             if (!roomsList) return;
 
-            roomsList.innerHTML = '';
-
-            if (rooms.length === 0) {
-                roomsList.innerHTML = `
-                    <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: #666;">
-                        <div style="font-size: 3em; margin-bottom: 20px;">🏠</div>
-                        <h3>Нет доступных комнат</h3>
-                        <p>Создайте первую комнату и начните игру!</p>
-                    </div>
-                `;
+            if (!rooms || rooms.length === 0) {
+                roomsList.innerHTML = '<div style="text-align: center; color: #666; padding: 40px;">Нет доступных комнат. Создайте первую!</div>';
                 return;
             }
 
-            rooms.forEach(room => {
-                const roomCard = document.createElement('div');
-                roomCard.className = 'room-card';
-                
-                const statusClass = room.status === 'waiting' ? 'status-waiting' : 'status-playing';
-                const statusText = room.status === 'waiting' ? '🟢 Ожидание' : '🔴 Играют';
-                const joinDisabled = room.status !== 'waiting' ? 'disabled' : '';
-                const joinText = room.status === 'waiting' ? '🚪 Присоединиться' : '⏳ Игра идёт';
-
-                roomCard.innerHTML = `
+            roomsList.innerHTML = rooms.map(room => `
+                <div class="room-card" onclick="joinRoom('${room.id}')">
                     <div class="room-header">
-                        <div class="room-name">🏠 ${room.name}</div>
-                        <div class="room-status ${statusClass}">${statusText}</div>
+                        <div class="room-name">${room.name}</div>
+                        <div class="room-status ${room.status === 'waiting' ? 'status-waiting' : 'status-playing'}">
+                            ${room.status === 'waiting' ? '⏳ Ожидание' : '🎮 Играют'}
+                        </div>
                     </div>
                     <div class="room-info">
                         <div class="room-players">👥 ${room.players}/${room.maxPlayers} игроков</div>
-                        <div class="room-creator">👑 Создатель: ${room.creator}</div>
-                        ${room.hasPassword ? '<div style="color: #f39c12;">🔒 Приватная комната</div>' : '<div style="color: #27ae60;">🌐 Открытая комната</div>'}
-                        <div style="color: #666; font-size: 0.9em; margin-top: 5px;">
-                            📅 ${new Date(room.createdAt).toLocaleString('ru-RU')}
-                        </div>
+                        <div class="room-creator">👑 ${room.creator}</div>
+                        ${room.hasPassword ? '<div style="color: #e74c3c;">🔒 Приватная</div>' : ''}
                     </div>
-                    <button class="btn" onclick="joinRoom('${room.id}', ${room.hasPassword})" ${joinDisabled}>
-                        ${joinText}
-                    </button>
-                `;
-                
-                roomsList.appendChild(roomCard);
-            });
+                    <div style="font-size: 0.8em; color: #999; margin-top: 10px;">
+                        Создана: ${new Date(room.createdAt).toLocaleString()}
+                    </div>
+                </div>
+            `).join('');
         }
 
         function showCreateRoomForm() {
@@ -1869,36 +2037,34 @@
                 return;
             }
 
-            console.log('🏠 Создание комнаты:', name);
+            if (minPlayers >= maxPlayers) {
+                showNotification('Максимум игроков должен быть больше минимума', 'error');
+                return;
+            }
+
+            const roomData = {
+                name: name,
+                password: password || null,
+                minPlayers: minPlayers,
+                maxPlayers: maxPlayers,
+                roles: {
+                    doctor: doctorRole,
+                    don: true, // Дон всегда есть
+                    lovers: loversRole
+                }
+            };
+
+            console.log('🏠 Создание комнаты:', roomData);
 
             sendWebSocketMessage({
                 type: 'createRoom',
-                room: {
-                    name: name,
-                    password: password || null,
-                    minPlayers: minPlayers,
-                    maxPlayers: maxPlayers,
-                    roles: {
-                        doctor: doctorRole,
-                        don: true,
-                        lovers: loversRole
-                    }
-                }
+                room: roomData
             });
-
-            // Очищаем форму
-            document.getElementById('roomName').value = '';
-            document.getElementById('roomPassword').value = '';
         }
 
-        function joinRoom(roomId, hasPassword) {
-            let password = null;
+        function joinRoom(roomId) {
+            const password = prompt('Введите пароль (если комната приватная):');
             
-            if (hasPassword) {
-                password = prompt('🔒 Введите пароль для комнаты:');
-                if (password === null) return;
-            }
-
             console.log('🚪 Присоединение к комнате:', roomId);
 
             sendWebSocketMessage({
@@ -1909,236 +2075,183 @@
         }
 
         function leaveRoom() {
-            if (currentRoom) {
-                console.log('🚪 Покидаем комнату:', currentRoom.id);
-                sendWebSocketMessage({
-                    type: 'leaveRoom'
-                });
-                currentRoom = null;
-                gameState = null;
-                saveUserSession();
-                showMainMenu();
-            }
+            console.log('🚪 Покидание комнаты');
+            
+            sendWebSocketMessage({ type: 'leaveRoom' });
+            
+            currentRoom = null;
+            gameState = null;
+            saveUserSession();
+            showMainMenu();
         }
 
         // Игровая комната
         function updateGameRoom() {
             if (!currentRoom) return;
 
-            // Обновляем заголовок
-            const phaseElement = document.getElementById('gamePhase');
-            const timerElement = document.getElementById('gameTimer');
-            const roleElement = document.getElementById('gameRole');
-
-            if (phaseElement) {
-                if (currentRoom.status === 'waiting') {
-                    phaseElement.textContent = `🏠 ${currentRoom.name} - Ожидание игроков...`;
-                } else if (gameState) {
-                    const phaseNames = {
-                        'night': '🌙 Ночь',
-                        'day': '☀️ День'
-                    };
-                    phaseElement.textContent = `${phaseNames[gameState.phase] || gameState.phase} - День ${gameState.day}`;
-                }
-            }
-
-            if (timerElement) {
-                if (gameState && gameState.timeLeft !== undefined) {
-                    const minutes = Math.floor(gameState.timeLeft / 60);
-                    const seconds = gameState.timeLeft % 60;
-                    timerElement.textContent = `⏰ ${minutes}:${seconds.toString().padStart(2, '0')}`;
-                } else {
-                    timerElement.textContent = '';
-                }
-            }
-
-            if (roleElement) {
-                // Показываем роль игрока
-                const myPlayer = currentRoom.players.find(p => p.nickname === currentUser.nickname);
-                if (myPlayer && myPlayer.role) {
-                    const roleNames = {
-                        'citizen': '👨‍💼 Мирный житель',
-                        'mafia': '🔫 Мафия',
-                        'don': '👑 Дон мафии',
-                        'doctor': '👨‍⚕️ Доктор',
-                        'lover1': '💕 Влюблённый',
-                        'lover2': '💕 Влюблённая'
-                    };
-                    roleElement.textContent = `🎭 Ваша роль: ${roleNames[myPlayer.role] || myPlayer.role}`;
-                } else {
-                    roleElement.textContent = '';
-                }
-            }
-
-            // Обновляем сетку игроков
             updatePlayersGrid();
-
-            // Обновляем игровые действия
+            updateGameHeader();
             updateGameActions();
         }
 
         function updatePlayersGrid() {
-            const grid = document.getElementById('playersGrid');
-            if (!grid || !currentRoom || !currentRoom.players) return;
+            const playersGrid = document.getElementById('playersGrid');
+            if (!playersGrid || !currentRoom) return;
 
-            grid.innerHTML = '';
-
-            currentRoom.players.forEach(player => {
-                const playerCard = document.createElement('div');
-                playerCard.className = 'player-card';
+            playersGrid.innerHTML = currentRoom.players.map(player => {
+                const isSelected = selectedPlayer === player.nickname;
+                const isDead = !player.isAlive;
                 
-                if (!player.isAlive) {
-                    playerCard.classList.add('dead');
-                }
-
-                if (selectedPlayer === player.nickname) {
-                    playerCard.classList.add('selected');
-                }
-
-                const adminBadge = player.nickname === 'Anubis' ? ' <span class="admin-badge">БОГ</span>' : '';
-                const creatorBadge = player.isCreator ? ' 👑' : '';
-                const roleDisplay = player.role ? `<div class="player-role">${getRoleName(player.role)}</div>` : '';
-
-                playerCard.innerHTML = `
-                    <div class="player-avatar">${player.avatar}</div>
-                    <div class="player-nickname" data-nickname="${player.nickname}">
-                        ${player.nickname}${creatorBadge}${adminBadge}
-                    </div>
-                    ${roleDisplay}
-                    <div class="player-status ${player.isAlive ? 'status-alive' : 'status-dead'}">
-                        ${player.isAlive ? '✅ Жив' : '💀 Мёртв'}
+                return `
+                    <div class="player-card ${isDead ? 'dead' : ''} ${isSelected ? 'selected' : ''}" 
+                         onclick="selectPlayer('${player.nickname}')">
+                        <div class="player-avatar">${player.avatar}</div>
+                        <div class="player-nickname" onclick="showPlayerProfile('${player.nickname}')">${player.nickname}</div>
+                        ${player.isCreator ? '<div style="color: #f39c12;">👑 Создатель</div>' : ''}
+                        ${player.isBot ? '<div style="color: #95a5a6;">🤖 Бот</div>' : ''}
+                        ${player.role ? `<div class="player-role">${getRoleName(player.role)}</div>` : ''}
+                        <div class="player-status ${player.isAlive ? 'status-alive' : 'status-dead'}">
+                            ${player.isAlive ? '💚 Жив' : '💀 Мёртв'}
+                        </div>
                     </div>
                 `;
+            }).join('');
 
-                // Применяем эффекты никнейма для текущего пользователя
-                const nicknameElement = playerCard.querySelector('.player-nickname');
-                if (player.nickname === currentUser.nickname && currentUser.nickname_effects) {
-                    applyNicknameEffects(nicknameElement, currentUser.nickname_effects);
+            // Применяем эффекты никнейма к игрокам
+            currentRoom.players.forEach(player => {
+                const playerCard = playersGrid.querySelector(`[onclick="selectPlayer('${player.nickname}')"]`);
+                if (playerCard) {
+                    const nicknameElement = playerCard.querySelector('.player-nickname');
+                    if (nicknameElement && player.nickname_effects) {
+                        applyNicknameEffects(nicknameElement, player.nickname_effects);
+                    }
                 }
-
-                // Добавляем обработчик клика для выбора цели
-                if (gameState && player.isAlive && player.nickname !== currentUser.nickname) {
-                    playerCard.style.cursor = 'pointer';
-                    playerCard.onclick = () => selectPlayer(player.nickname);
-                }
-
-                grid.appendChild(playerCard);
             });
         }
 
-        function getRoleName(role) {
-            const roleNames = {
-                'citizen': '👨‍💼 Мирный',
-                'mafia': '🔫 Мафия',
-                'don': '👑 Дон',
-                'doctor': '👨‍⚕️ Доктор',
-                'lover1': '💕 Влюблённый',
-                'lover2': '💕 Влюблённая'
-            };
-            return roleNames[role] || role;
-        }
+        function updateGameHeader() {
+            const gamePhaseElement = document.getElementById('gamePhase');
+            const gameTimerElement = document.getElementById('gameTimer');
+            const gameRoleElement = document.getElementById('gameRole');
 
-        function selectPlayer(nickname) {
-            selectedPlayer = nickname;
-            updatePlayersGrid();
-            showNotification(`Выбран игрок: ${nickname}`, 'success');
+            if (!gamePhaseElement || !gameTimerElement || !gameRoleElement) return;
+
+            if (currentRoom.status === 'waiting') {
+                gamePhaseElement.textContent = `Ожидание игроков (${currentRoom.players.length}/${currentRoom.maxPlayers})`;
+                gameTimerElement.textContent = '--:--';
+                gameRoleElement.textContent = '';
+            } else if (currentRoom.status === 'playing' && gameState) {
+                gamePhaseElement.textContent = `${getPhaseNameRu(gameState.phase)} - День ${gameState.day}`;
+                
+                if (gameState.timeLeft) {
+                    const minutes = Math.floor(gameState.timeLeft / 60);
+                    const seconds = gameState.timeLeft % 60;
+                    gameTimerElement.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                } else {
+                    gameTimerElement.textContent = '--:--';
+                }
+
+                // Показываем роль игрока
+                const currentPlayer = currentRoom.players.find(p => p.nickname === currentUser.nickname);
+                if (currentPlayer && currentPlayer.role) {
+                    gameRoleElement.textContent = `Ваша роль: ${getRoleName(currentPlayer.role)}`;
+                }
+            }
         }
 
         function updateGameActions() {
-            const actionsDiv = document.getElementById('gameActions');
-            const titleElement = document.getElementById('actionTitle');
-            const buttonsDiv = document.getElementById('actionButtons');
+            const gameActions = document.getElementById('gameActions');
+            if (!gameActions) return;
 
-            if (!actionsDiv || !titleElement || !buttonsDiv) return;
-
-            if (!gameState || currentRoom.status !== 'playing') {
-                actionsDiv.classList.add('hidden');
-                return;
-            }
-
-            const myPlayer = currentRoom.players.find(p => p.nickname === currentUser.nickname);
-            if (!myPlayer || !myPlayer.isAlive) {
-                actionsDiv.classList.add('hidden');
-                return;
-            }
-
-            actionsDiv.classList.remove('hidden');
-            buttonsDiv.innerHTML = '';
-
-            if (gameState.phase === 'night') {
-                if (myPlayer.role === 'mafia' || myPlayer.role === 'don') {
-                    titleElement.textContent = '🔫 Выберите цель для убийства';
-                    const killBtn = document.createElement('button');
-                    killBtn.className = 'btn btn-danger';
-                    killBtn.textContent = '🔫 Убить';
-                    killBtn.onclick = () => performAction('kill');
-                    buttonsDiv.appendChild(killBtn);
-                } else if (myPlayer.role === 'doctor') {
-                    titleElement.textContent = '💊 Выберите кого лечить';
-                    const healBtn = document.createElement('button');
-                    healBtn.className = 'btn btn-success';
-                    healBtn.textContent = '💊 Лечить';
-                    healBtn.onclick = () => performAction('heal');
-                    buttonsDiv.appendChild(healBtn);
-                } else {
-                    titleElement.textContent = '🌙 Ночь... Спите спокойно';
-                }
-            } else if (gameState.phase === 'day') {
-                titleElement.textContent = '🗳️ Голосование за исключение';
-                const voteBtn = document.createElement('button');
-                voteBtn.className = 'btn';
-                voteBtn.textContent = '🗳️ Голосовать';
-                voteBtn.onclick = () => performAction('vote');
-                buttonsDiv.appendChild(voteBtn);
-
-                const skipBtn = document.createElement('button');
-                skipBtn.className = 'btn btn-secondary';
-                skipBtn.textContent = '⏭️ Пропустить голос';
-                skipBtn.onclick = () => performAction('skip');
-                buttonsDiv.appendChild(skipBtn);
-            }
+            // Пока скрываем игровые действия
+            gameActions.classList.add('hidden');
         }
 
-        function performAction(action) {
-            if (!selectedPlayer && action !== 'skip') {
-                showNotification('Выберите цель для действия', 'error');
-                return;
+        function selectPlayer(nickname) {
+            if (selectedPlayer === nickname) {
+                selectedPlayer = null;
+            } else {
+                selectedPlayer = nickname;
             }
-
-            console.log('🎮 Выполнение действия:', action, 'цель:', selectedPlayer);
-
-            sendWebSocketMessage({
-                type: 'gameAction',
-                action: {
-                    action: action,
-                    target: selectedPlayer
-                }
-            });
-
-            selectedPlayer = null;
             updatePlayersGrid();
-            showNotification(`✅ Действие "${action}" выполнено`, 'success');
         }
 
-        // Улучшенный чат
-        function sendMessage() {
-            const input = document.getElementById('chatInput');
-            if (!input) return;
+        function showPlayerProfile(nickname) {
+            console.log('👤 Запрос профиля игрока:', nickname);
+            sendWebSocketMessage({
+                type: 'getUserProfile',
+                nickname: nickname
+            });
+        }
 
-            const message = input.value.trim();
+        function showUserProfile(profile) {
+            const modal = document.getElementById('profileModal');
+            const content = document.getElementById('profileContent');
+            
+            if (!modal || !content) return;
 
-            if (!message) {
-                showNotification('Введите сообщение', 'warning');
-                return;
+            content.innerHTML = `
+                <div class="profile-avatar">${profile.avatar}</div>
+                <div class="profile-nickname">${profile.nickname}</div>
+                ${profile.is_admin ? '<div style="text-align: center; margin-bottom: 15px;"><span class="admin-badge">👑 БОГ</span></div>' : ''}
+                <div style="text-align: center; color: #f39c12; font-size: 1.2em; margin-bottom: 20px;">
+                    💰 ${profile.coins} монет
+                </div>
+                <div class="profile-stats">
+                    <div class="profile-stat">
+                        <div class="profile-stat-value">${profile.games_played || 0}</div>
+                        <div class="profile-stat-label">Игр сыграно</div>
+                    </div>
+                    <div class="profile-stat">
+                        <div class="profile-stat-value">${profile.games_won || 0}</div>
+                        <div class="profile-stat-label">Побед</div>
+                    </div>
+                    <div class="profile-stat">
+                        <div class="profile-stat-value">${profile.games_survived || 0}</div>
+                        <div class="profile-stat-label">Выжил</div>
+                    </div>
+                    <div class="profile-stat">
+                        <div class="profile-stat-value">${profile.games_played > 0 ? Math.round((profile.games_won / profile.games_played) * 100) : 0}%</div>
+                        <div class="profile-stat-label">Винрейт</div>
+                    </div>
+                </div>
+                <div style="margin-top: 20px; text-align: center; color: #666; font-size: 0.9em;">
+                    <div>Зарегистрирован: ${new Date(profile.created_at).toLocaleDateString()}</div>
+                    <div>Последний вход: ${new Date(profile.last_login).toLocaleDateString()}</div>
+                </div>
+            `;
+
+            // Применяем эффекты никнейма
+            const nicknameElement = content.querySelector('.profile-nickname');
+            if (nicknameElement && profile.nickname_effects) {
+                applyNicknameEffects(nicknameElement, profile.nickname_effects);
             }
+
+            modal.classList.remove('hidden');
+        }
+
+        function hideProfileModal() {
+            const modal = document.getElementById('profileModal');
+            if (modal) {
+                modal.classList.add('hidden');
+            }
+        }
+
+        function startGame() {
+            console.log('🎮 Запуск игры');
+            sendWebSocketMessage({ type: 'startGame' });
+        }
+
+        // Чат
+        function sendMessage() {
+            const chatInput = document.getElementById('chatInput');
+            if (!chatInput) return;
+
+            const message = chatInput.value.trim();
+            if (!message) return;
 
             if (message.length > 200) {
-                showNotification('Сообщение слишком длинное (максимум 200 символов)', 'error');
-                return;
-            }
-
-            if (!currentRoom) {
-                showNotification('Вы не находитесь в комнате', 'error');
+                showNotification('Сообщение слишком длинное', 'error');
                 return;
             }
 
@@ -2149,42 +2262,38 @@
                 message: message
             });
 
-            input.value = '';
+            chatInput.value = '';
         }
 
         function addChatMessage(data) {
-            const messagesDiv = document.getElementById('chatMessages');
-            if (!messagesDiv) return;
+            const chatMessages = document.getElementById('chatMessages');
+            if (!chatMessages) return;
 
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message';
-
-            if (data.sender === 'Система') {
-                messageDiv.classList.add('system');
-            }
-
-            const time = new Date(data.timestamp).toLocaleTimeString('ru-RU', {
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-
-            const senderDisplay = data.sender === 'Система' ? '🤖 Система' : `👤 ${data.sender}`;
-
-            messageDiv.innerHTML = `
-                <span class="message-sender">${senderDisplay}:</span>
-                <span class="message-text">${data.message}</span>
+            const messageElement = document.createElement('div');
+            messageElement.className = `message ${data.sender === 'Система' ? 'system' : ''}`;
+            
+            const time = new Date(data.timestamp).toLocaleTimeString();
+            
+            messageElement.innerHTML = `
+                <span class="message-sender">${data.sender}:</span>
+                ${data.message}
                 <span class="message-time">${time}</span>
             `;
 
-            messagesDiv.appendChild(messageDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            chatMessages.appendChild(messageElement);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
 
             // Ограничиваем количество сообщений
-            while (messagesDiv.children.length > 100) {
-                messagesDiv.removeChild(messagesDiv.firstChild);
+            while (chatMessages.children.length > 100) {
+                chatMessages.removeChild(chatMessages.firstChild);
             }
+        }
 
-            console.log('💬 Добавлено сообщение от:', data.sender);
+        function clearChatMessages() {
+            const chatMessages = document.getElementById('chatMessages');
+            if (chatMessages) {
+                chatMessages.innerHTML = '';
+            }
         }
 
         // Магазин
@@ -2195,7 +2304,7 @@
             }
 
             if (currentUser.coins < price) {
-                showNotification(`Недостаточно монет. Нужно: ${price}, у вас: ${currentUser.coins}`, 'error');
+                showNotification('Недостаточно монет', 'error');
                 return;
             }
 
@@ -2204,7 +2313,7 @@
                 return;
             }
 
-            console.log('🛒 Покупка эффекта:', effect, 'за', price, 'монет');
+            console.log('🛒 Покупка эффекта:', effect);
 
             sendWebSocketMessage({
                 type: 'buyEffect',
@@ -2212,74 +2321,27 @@
             });
         }
 
-        // Админские функции
-        function adminGiveCoins() {
-            const targetUser = document.getElementById('adminTargetUser').value.trim();
-            const amount = parseInt(document.getElementById('adminCoinsAmount').value);
-
-            if (!targetUser || !amount) {
-                showNotification('Заполните все поля', 'error');
-                return;
-            }
-
-            console.log('👑 Админ выдача монет:', targetUser, amount);
-
-            sendWebSocketMessage({
-                type: 'adminAction',
-                action: 'giveCoins',
-                target: targetUser,
-                amount: amount
-            });
-
-            document.getElementById('adminTargetUser').value = '';
-            document.getElementById('adminCoinsAmount').value = '';
-        }
-
-        function adminGiveEffect() {
-            const targetUser = document.getElementById('adminEffectUser').value.trim();
-            const effect = document.getElementById('adminEffectType').value;
-
-            if (!targetUser || !effect) {
-                showNotification('Заполните все поля', 'error');
-                return;
-            }
-
-            console.log('👑 Админ выдача эффекта:', targetUser, effect);
-
-            sendWebSocketMessage({
-                type: 'adminAction',
-                action: 'giveEffect',
-                target: targetUser,
-                effect: effect
-            });
-
-            document.getElementById('adminEffectUser').value = '';
-        }
-
-        // Админские функции для ботов
+        // Админские функции в комнате
         function adminAddBot() {
-            const botName = document.getElementById('botName').value.trim();
-            const botAvatar = document.getElementById('botAvatar').value;
+            const botName = document.getElementById('roomBotName').value.trim();
+            const botAvatar = document.getElementById('roomBotAvatar').value;
 
             if (!botName) {
                 showNotification('Введите имя бота', 'error');
                 return;
             }
 
-            console.log('👑 Админ добавление бота:', botName);
-
             sendWebSocketMessage({
-                type: 'adminAction',
-                action: 'addBot',
+                type: 'addBot',
                 botName: botName,
                 botAvatar: botAvatar
             });
 
-            document.getElementById('botName').value = '';
+            document.getElementById('roomBotName').value = '';
         }
 
         function adminRemoveBot() {
-            const botName = document.getElementById('removeBotName').value.trim();
+            const botName = document.getElementById('roomRemoveBotName').value.trim();
 
             if (!botName) {
                 showNotification('Введите имя бота', 'error');
@@ -2287,174 +2349,79 @@
             }
 
             sendWebSocketMessage({
-                type: 'adminAction',
-                action: 'removeBot',
+                type: 'removeBot',
                 botName: botName
             });
 
-            document.getElementById('removeBotName').value = '';
+            document.getElementById('roomRemoveBotName').value = '';
         }
 
         function adminForceEndGame() {
-            const roomId = document.getElementById('forceEndRoom').value.trim();
-
-            if (!roomId) {
-                showNotification('Введите ID комнаты', 'error');
-                return;
-            }
-
-            sendWebSocketMessage({
-                type: 'adminAction',
-                action: 'forceEndGame',
-                roomId: roomId
-            });
-
-            document.getElementById('forceEndRoom').value = '';
-        }
-
-        function adminRestartServer() {
-            if (confirm('Вы уверены, что хотите перезапустить сервер?')) {
+            if (confirm('Вы уверены, что хотите завершить игру?')) {
                 sendWebSocketMessage({
-                    type: 'adminAction',
-                    action: 'restartServer'
+                    type: 'forceEndGame',
+                    roomId: currentRoom ? currentRoom.id : null
                 });
             }
         }
 
-        function adminGetLogs() {
-            sendWebSocketMessage({
-                type: 'adminAction',
-                action: 'getLogs'
-            });
-        }
-
-        function adminSendAnnouncement() {
-            const text = document.getElementById('announcementText').value.trim();
-
-            if (!text) {
-                showNotification('Введите текст объявления', 'error');
-                return;
-            }
-
-            sendWebSocketMessage({
-                type: 'adminAction',
-                action: 'sendAnnouncement',
-                text: text
-            });
-
-            document.getElementById('announcementText').value = '';
-        }
-
-        // Обновление статистики лобби
-        function updateLobbyStats(stats) {
-            if (stats) {
-                document.getElementById('onlineUsers').textContent = stats.onlineUsers || 0;
-                document.getElementById('activeRooms').textContent = stats.activeRooms || 0;
-                document.getElementById('activeGames').textContent = stats.activeGames || 0;
-                document.getElementById('serverUptime').textContent = Math.floor((stats.uptime || 0) / 3600);
+        // Автостарт таймер
+        function showAutoStartTimer(timeLeft, reason) {
+            const gamePhaseElement = document.getElementById('gamePhase');
+            if (gamePhaseElement) {
+                gamePhaseElement.innerHTML = `
+                    ${reason}<br>
+                    <span style="color: #e74c3c; font-size: 1.2em;">Автостарт через ${timeLeft} сек</span>
+                `;
             }
         }
 
-        // Улучшенные уведомления
-        function showNotification(message, type = 'success') {
-            // Удаляем предыдущие уведомления того же типа
-            const existingNotifications = document.querySelectorAll(`.notification.${type}`);
+        function hideAutoStartTimer() {
+            updateGameHeader();
+        }
+
+        // Вспомогательные функции
+        function getRoleName(role) {
+            const roleNames = {
+                'citizen': '👨‍💼 Мирный житель',
+                'mafia': '🔫 Мафия',
+                'don': '👑 Дон мафии',
+                'doctor': '👨‍⚕️ Доктор',
+                'lover1': '💕 Влюблённый',
+                'lover2': '💕 Влюблённая'
+            };
+            return roleNames[role] || role;
+        }
+
+        function getPhaseNameRu(phase) {
+            const phaseNames = {
+                'night': '🌙 Ночь',
+                'day': '☀️ День',
+                'voting': '🗳️ Голосование',
+                'lastWords': '💬 Последние слова'
+            };
+            return phaseNames[phase] || phase;
+        }
+
+        function showNotification(message, type = 'info') {
+            // Удаляем предыдущие уведомления
+            const existingNotifications = document.querySelectorAll('.notification');
             existingNotifications.forEach(notification => notification.remove());
 
             const notification = document.createElement('div');
             notification.className = `notification ${type}`;
-            
-            const icons = {
-                'success': '✅',
-                'error': '❌',
-                'warning': '⚠️',
-                'info': 'ℹ️'
-            };
-
-            notification.innerHTML = `
-                <span style="margin-right: 8px;">${icons[type] || '📢'}</span>
-                <span>${message}</span>
-            `;
+            notification.textContent = message;
 
             document.body.appendChild(notification);
 
             // Автоматически удаляем через 5 секунд
             setTimeout(() => {
                 if (notification.parentNode) {
-                    notification.style.opacity = '0';
-                    setTimeout(() => {
-                        if (notification.parentNode) {
-                            notification.parentNode.removeChild(notification);
-                        }
-                    }, 300);
+                    notification.parentNode.removeChild(notification);
                 }
             }, 5000);
 
-            // Удаляем по клику
-            notification.onclick = () => {
-                if (notification.parentNode) {
-                    notification.style.opacity = '0';
-                    setTimeout(() => {
-                        if (notification.parentNode) {
-                            notification.parentNode.removeChild(notification);
-                        }
-                    }, 300);
-                }
-            };
-
-            console.log(`📢 Уведомление (${type}):`, message);
-        }
-
-        // Автостарт таймер
-        function showAutoStartTimer(timeLeft, reason) {
-            let timerElement = document.getElementById('autoStartTimer');
-            
-            if (!timerElement) {
-                timerElement = document.createElement('div');
-                timerElement.id = 'autoStartTimer';
-                timerElement.style.cssText = `
-                    position: fixed;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    background: linear-gradient(135deg, #667eea, #764ba2);
-                    color: white;
-                    padding: 30px;
-                    border-radius: 15px;
-                    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-                    text-align: center;
-                    z-index: 2000;
-                    font-size: 1.2em;
-                    min-width: 300px;
-                `;
-                document.body.appendChild(timerElement);
-            }
-            
-            timerElement.innerHTML = `
-                <div style="font-size: 2em; margin-bottom: 15px;">🚀</div>
-                <div style="font-size: 1.5em; font-weight: bold; margin-bottom: 10px;">АВТОСТАРТ</div>
-                <div style="margin-bottom: 15px;">${reason}</div>
-                <div style="font-size: 3em; font-weight: bold; color: #ffff00;">${timeLeft}</div>
-                <div style="margin-top: 10px; font-size: 0.9em; opacity: 0.8;">секунд до начала игры</div>
-            `;
-            
-            // Добавляем звуковой эффект на последние 3 секунды
-            if (timeLeft <= 3 && timeLeft > 0) {
-                // Можно добавить звук тик-так
-                timerElement.style.animation = 'pulse 0.5s ease-in-out';
-            }
-        }
-
-        function hideAutoStartTimer() {
-            const timerElement = document.getElementById('autoStartTimer');
-            if (timerElement) {
-                timerElement.style.opacity = '0';
-                setTimeout(() => {
-                    if (timerElement.parentNode) {
-                        timerElement.parentNode.removeChild(timerElement);
-                    }
-                }, 300);
-            }
+            console.log(`📢 ${type.toUpperCase()}: ${message}`);
         }
 
         // Ping для поддержания соединения
@@ -2462,24 +2429,7 @@
             if (ws && ws.readyState === WebSocket.OPEN) {
                 sendWebSocketMessage({ type: 'ping' });
             }
-        }, 30000);
-
-        // Обновление таймера игры
-        setInterval(() => {
-            if (gameState && gameState.timeLeft > 0) {
-                gameState.timeLeft--;
-                updateGameRoom();
-            }
-        }, 1000);
-
-        // Автообновление списка комнат каждые 10 секунд
-        setInterval(() => {
-            if (currentUser && !currentRoom && document.getElementById('mainMenu') && !document.getElementById('mainMenu').classList.contains('hidden')) {
-                loadRooms();
-            }
-        }, 10000);
-
-        console.log('🎮 Mafia Game загружен и готов к работе!');
+        }, 30000); // Каждые 30 секунд
     </script>
 </body>
 </html>

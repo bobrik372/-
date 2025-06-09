@@ -1,5 +1,6 @@
 const WebSocket = require("ws")
 const { v4: uuidv4 } = require("uuid")
+const crypto = require("crypto")
 
 console.log("📦 Загрузка WebSocketHandler модуля...")
 
@@ -13,6 +14,7 @@ class WebSocketHandler {
     this.users = new Map() // ws -> user data
     this.rooms = new Map() // roomId -> room data
     this.usersByNickname = new Map() // nickname -> ws
+    this.deviceSessions = new Map() // deviceId -> { nickname, sessionId }
 
     // Связываем GameEngine с комнатами и базой данных
     if (this.gameEngine) {
@@ -47,6 +49,8 @@ class WebSocketHandler {
         isAuthenticated: false,
         nickname: null,
         currentRoom: null,
+        deviceId: null,
+        sessionId: null,
       })
 
       ws.on("message", async (message) => {
@@ -106,6 +110,14 @@ class WebSocketHandler {
         }
       }
     }, 1000) // Обновляем каждую секунду
+  }
+
+  generateDeviceId(userAgent, ip) {
+    return crypto
+      .createHash("sha256")
+      .update(userAgent + ip)
+      .digest("hex")
+      .substring(0, 16)
   }
 
   async handleMessage(ws, data) {
@@ -200,6 +212,12 @@ class WebSocketHandler {
         case "rejoinRoom":
           await this.rejoinRoom(ws, data.roomId)
           break
+        case "getUserProfile":
+          if (!user || !user.isAuthenticated) {
+            return this.sendError(ws, "Вы не авторизованы")
+          }
+          await this.getUserProfile(ws, data.nickname)
+          break
         default:
           this.sendError(ws, `Неизвестный тип сообщения: ${data.type}`)
       }
@@ -241,7 +259,7 @@ class WebSocketHandler {
 
   async handleLogin(ws, data) {
     try {
-      const { nickname, password } = data
+      const { nickname, password, deviceId } = data
 
       if (!nickname || !password) {
         return this.sendError(ws, "Никнейм и пароль обязательны")
@@ -253,24 +271,47 @@ class WebSocketHandler {
         return this.sendError(ws, "Неверный никнейм или пароль")
       }
 
-      // Отключаем предыдущее соединение если есть - НО МЯГКО!
+      // Генерируем или используем deviceId
+      const finalDeviceId = deviceId || this.generateDeviceId(data.userAgent || "unknown", data.ip || "unknown")
+
+      // Проверяем существующие сессии
+      const existingSession = this.deviceSessions.get(finalDeviceId)
+      if (existingSession && existingSession.nickname === nickname) {
+        console.log(`🔄 Восстановление сессии для ${nickname} с устройства ${finalDeviceId}`)
+      }
+
+      // Отключаем предыдущие соединения этого пользователя
       const existingWs = this.usersByNickname.get(nickname)
       if (existingWs && existingWs !== ws) {
-        console.log(`🔄 Мягкое отключение предыдущего соединения для ${nickname}`)
-        this.send(existingWs, {
-          type: "forceReconnect",
-          reason: "Вход с другого устройства",
-        })
-        // НЕ закрываем соединение принудительно, пусть клиент сам переподключится
+        console.log(`🔄 Отключение предыдущего соединения для ${nickname}`)
+
+        // Удаляем игрока из комнаты если он там был
+        const existingUser = this.users.get(existingWs)
+        if (existingUser && existingUser.currentRoom) {
+          await this.removePlayerFromRoom(existingUser.currentRoom, nickname)
+        }
+
         this.users.delete(existingWs)
         this.usersByNickname.delete(nickname)
+
+        try {
+          existingWs.close()
+        } catch (e) {
+          console.log("Старое соединение уже закрыто")
+        }
       }
+
+      // Создаём новую сессию
+      const sessionId = uuidv4()
+      this.deviceSessions.set(finalDeviceId, { nickname, sessionId })
 
       // Сохраняем пользователя
       const userData = {
         ...user,
         currentRoom: null,
         isAuthenticated: true,
+        deviceId: finalDeviceId,
+        sessionId: sessionId,
       }
 
       this.users.set(ws, userData)
@@ -288,6 +329,8 @@ class WebSocketHandler {
           games_survived: user.games_survived,
           is_admin: user.is_admin,
         },
+        deviceId: finalDeviceId,
+        sessionId: sessionId,
       }
 
       this.send(ws, loginResponse)
@@ -295,6 +338,48 @@ class WebSocketHandler {
     } catch (error) {
       console.error("❌ Ошибка входа:", error)
       this.sendError(ws, "Ошибка входа в систему")
+    }
+  }
+
+  async removePlayerFromRoom(roomId, nickname) {
+    const room = this.rooms.get(roomId)
+    if (!room) return
+
+    const playerIndex = room.players.findIndex((p) => p.nickname === nickname)
+    if (playerIndex !== -1) {
+      room.players.splice(playerIndex, 1)
+      console.log(`🗑️ Игрок ${nickname} удалён из комнаты ${room.name}`)
+
+      // Отменяем автостарт если условия больше не выполняются
+      this.cancelAutoStart(room)
+
+      // Если комната пуста, удаляем её
+      if (room.players.length === 0) {
+        this.rooms.delete(roomId)
+        await this.db.deleteRoom(roomId)
+        console.log(`🗑️ Комната ${room.name} удалена (пустая)`)
+      } else {
+        // Если создатель ушёл, назначаем нового
+        if (room.creator === nickname && room.players.length > 0) {
+          room.creator = room.players[0].nickname
+          room.players[0].isCreator = true
+          console.log(`👑 Новый создатель комнаты: ${room.creator}`)
+        }
+
+        this.broadcastToRoom(roomId, {
+          type: "roomUpdated",
+          room: this.sanitizeRoomForClient(room),
+        })
+
+        this.broadcastToRoom(roomId, {
+          type: "chatMessage",
+          sender: "Система",
+          message: `${nickname} покинул комнату`,
+          timestamp: new Date().toISOString(),
+        })
+      }
+
+      await this.broadcastRoomsList()
     }
   }
 
@@ -384,6 +469,11 @@ class WebSocketHandler {
         return this.sendError(ws, "Игра уже началась")
       }
 
+      // Проверяем, не находится ли игрок уже в этой комнате
+      if (room.players.find((p) => p.nickname === user.nickname)) {
+        return this.sendError(ws, "Вы уже находитесь в этой комнате")
+      }
+
       // Добавляем игрока
       room.players.push({
         nickname: user.nickname,
@@ -433,49 +523,14 @@ class WebSocketHandler {
     }
 
     const roomId = user.currentRoom
-    const room = this.rooms.get(roomId)
-    if (!room) {
-      return
-    }
-
-    // Удаляем игрока
-    const playerIndex = room.players.findIndex((p) => p.nickname === user.nickname)
-    if (playerIndex !== -1) {
-      room.players.splice(playerIndex, 1)
-    }
-
-    // Отменяем автостарт если условия больше не выполняются
-    this.cancelAutoStart(room)
-
+    await this.removePlayerFromRoom(roomId, user.nickname)
     user.currentRoom = null
 
-    // Если комната пуста, удаляем её
-    if (room.players.length === 0) {
-      this.rooms.delete(roomId)
-      await this.db.deleteRoom(roomId)
-      console.log(`🗑️ Комната ${room.name} удалена (пустая)`)
-    } else {
-      // Если создатель ушёл, назначаем нового
-      if (room.creator === user.nickname && room.players.length > 0) {
-        room.creator = room.players[0].nickname
-        room.players[0].isCreator = true
-        console.log(`👑 Новый создатель комнаты: ${room.creator}`)
-      }
+    // Очищаем чат при выходе из комнаты
+    this.send(ws, {
+      type: "clearChat",
+    })
 
-      this.broadcastToRoom(roomId, {
-        type: "roomUpdated",
-        room: this.sanitizeRoomForClient(room),
-      })
-
-      this.broadcastToRoom(roomId, {
-        type: "chatMessage",
-        sender: "Система",
-        message: `${user.nickname} покинул комнату`,
-        timestamp: new Date().toISOString(),
-      })
-    }
-
-    await this.broadcastRoomsList()
     console.log(`👤 ${user.nickname} покинул комнату`)
   }
 
@@ -555,6 +610,19 @@ class WebSocketHandler {
       shake: 25,
       bounce: 20,
       fade: 15,
+      fire: 75,
+      ice: 70,
+      electric: 80,
+      matrix: 65,
+      neon: 85,
+      gold: 100,
+      shadow: 45,
+      wave: 40,
+      flip: 55,
+      zoom: 35,
+      bg_stars: 120,
+      bg_gradient: 100,
+      bg_pulse: 90,
     }
 
     const price = effectPrices[effect]
@@ -568,12 +636,13 @@ class WebSocketHandler {
 
     try {
       // Проверяем, есть ли уже этот эффект
-      if (user.nickname_effects.includes(effect)) {
+      if (user.nickname_effects && user.nickname_effects.includes(effect)) {
         return this.sendError(ws, "У вас уже есть этот эффект")
       }
 
       // Покупаем эффект
       await this.db.updateUserCoins(user.nickname, -price)
+      if (!user.nickname_effects) user.nickname_effects = []
       user.nickname_effects.push(effect)
       await this.db.updateUserNicknameEffects(user.nickname, user.nickname_effects)
       user.coins -= price
@@ -596,6 +665,8 @@ class WebSocketHandler {
       this.send(ws, {
         type: "effectBought",
         effect: effect,
+        coins: user.coins,
+        nickname_effects: user.nickname_effects,
         message: `Эффект "${effect}" успешно куплен!`,
       })
     } catch (error) {
@@ -613,7 +684,35 @@ class WebSocketHandler {
     try {
       switch (data.action) {
         case "giveCoins":
+          const targetUser = await this.db.getUser(data.target)
+          if (!targetUser) {
+            return this.sendError(ws, "Пользователь не найден")
+          }
+
           await this.db.adminUpdateUserCoins(user.nickname, data.target, data.amount)
+
+          // Обновляем данные пользователя если он онлайн
+          const targetWs = this.usersByNickname.get(data.target)
+          if (targetWs) {
+            const targetUserData = this.users.get(targetWs)
+            if (targetUserData) {
+              targetUserData.coins += data.amount
+              this.send(targetWs, {
+                type: "userUpdated",
+                user: {
+                  nickname: targetUserData.nickname,
+                  avatar: targetUserData.avatar,
+                  coins: targetUserData.coins,
+                  nickname_effects: targetUserData.nickname_effects,
+                  games_played: targetUserData.games_played,
+                  games_won: targetUserData.games_won,
+                  games_survived: targetUserData.games_survived,
+                  is_admin: targetUserData.is_admin,
+                },
+              })
+            }
+          }
+
           this.send(ws, {
             type: "adminActionSuccess",
             message: `Выдано ${data.amount} монет пользователю ${data.target}`,
@@ -621,14 +720,39 @@ class WebSocketHandler {
           break
 
         case "giveEffect":
-          const targetUser = await this.db.getUser(data.target)
-          if (targetUser) {
-            const effects = targetUser.nickname_effects || []
-            if (!effects.includes(data.effect)) {
-              effects.push(data.effect)
-              await this.db.adminUpdateUserEffects(user.nickname, data.target, effects)
+          const targetUser2 = await this.db.getUser(data.target)
+          if (!targetUser2) {
+            return this.sendError(ws, "Пользователь не найден")
+          }
+
+          const effects = targetUser2.nickname_effects || []
+          if (!effects.includes(data.effect)) {
+            effects.push(data.effect)
+            await this.db.adminUpdateUserEffects(user.nickname, data.target, effects)
+
+            // Обновляем данные пользователя если он онлайн
+            const targetWs2 = this.usersByNickname.get(data.target)
+            if (targetWs2) {
+              const targetUserData2 = this.users.get(targetWs2)
+              if (targetUserData2) {
+                targetUserData2.nickname_effects = effects
+                this.send(targetWs2, {
+                  type: "userUpdated",
+                  user: {
+                    nickname: targetUserData2.nickname,
+                    avatar: targetUserData2.avatar,
+                    coins: targetUserData2.coins,
+                    nickname_effects: targetUserData2.nickname_effects,
+                    games_played: targetUserData2.games_played,
+                    games_won: targetUserData2.games_won,
+                    games_survived: targetUserData2.games_survived,
+                    is_admin: targetUserData2.is_admin,
+                  },
+                })
+              }
             }
           }
+
           this.send(ws, {
             type: "adminActionSuccess",
             message: `Выдан эффект ${data.effect} пользователю ${data.target}`,
@@ -636,10 +760,10 @@ class WebSocketHandler {
           break
 
         case "removeEffect":
-          const targetUser2 = await this.db.getUser(data.target)
-          if (targetUser2) {
-            const effects = targetUser2.nickname_effects || []
-            const newEffects = effects.filter((e) => e !== data.effect)
+          const targetUser3 = await this.db.getUser(data.target)
+          if (targetUser3) {
+            const effects3 = targetUser3.nickname_effects || []
+            const newEffects = effects3.filter((e) => e !== data.effect)
             await this.db.adminUpdateUserEffects(user.nickname, data.target, newEffects)
           }
           this.send(ws, {
@@ -680,6 +804,9 @@ class WebSocketHandler {
 
     try {
       console.log(`🎮 Запуск игры в комнате ${room.name}`)
+
+      // Отменяем автостарт если он был
+      this.cancelAutoStart(room)
 
       // Запускаем игру через игровой движок
       if (this.gameEngine) {
@@ -1123,16 +1250,44 @@ class WebSocketHandler {
     console.log(`👑 Админ ${user.nickname} завершил игру в комнате ${room.id}`)
   }
 
+  async getUserProfile(ws, nickname) {
+    try {
+      const user = await this.db.getUser(nickname)
+      if (!user) {
+        return this.sendError(ws, "Пользователь не найден")
+      }
+
+      this.send(ws, {
+        type: "userProfile",
+        profile: {
+          nickname: user.nickname,
+          avatar: user.avatar,
+          coins: user.coins,
+          nickname_effects: user.nickname_effects,
+          games_played: user.games_played,
+          games_won: user.games_won,
+          games_survived: user.games_survived,
+          is_admin: user.is_admin,
+          created_at: user.created_at,
+          last_login: user.last_login,
+        },
+      })
+    } catch (error) {
+      console.error("❌ Ошибка получения профиля:", error)
+      this.sendError(ws, "Ошибка получения профиля пользователя")
+    }
+  }
+
   handleDisconnect(ws) {
     const user = this.users.get(ws)
     if (!user) {
       return
     }
 
-    // Покидаем комнату если были в ней
-    if (user.currentRoom) {
-      this.leaveRoom(ws)
-    }
+    // НЕ покидаем комнату при отключении - пользователь может переподключиться
+    // if (user.currentRoom) {
+    //   this.leaveRoom(ws)
+    // }
 
     // Удаляем из списков
     this.users.delete(ws)

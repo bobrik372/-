@@ -41,12 +41,35 @@ class MainActivity : AppCompatActivity() {
             useWideViewPort = true
             loadWithOverviewMode = true
             cacheMode = WebSettings.LOAD_DEFAULT
+        
+            // ОТКЛЮЧАЕМ ВОЗМОЖНОСТЬ ОБНОВЛЕНИЯ
+            allowContentAccess = false
+            allowFileAccessFromFileURLs = false
+            allowUniversalAccessFromFileURLs = false
         }
         
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 swipeRefresh.isRefreshing = false
+            
+                // Отключаем pull-to-refresh через JavaScript
+                view?.evaluateJavascript("""
+                    document.addEventListener('touchstart', function(e) {
+                        if (e.touches.length > 1) {
+                            e.preventDefault();
+                        }
+                    }, { passive: false });
+                    
+                    document.addEventListener('touchmove', function(e) {
+                        if (window.scrollY === 0) {
+                            e.preventDefault();
+                        }
+                    }, { passive: false });
+                    
+                    document.body.style.overscrollBehavior = 'none';
+                    document.documentElement.style.overscrollBehavior = 'none';
+                """, null)
             }
             
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
@@ -57,26 +80,33 @@ class MainActivity : AppCompatActivity() {
         }
         
         webView.webChromeClient = object : WebChromeClient() {
-            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+            override fun onConsoleMessage(consoleMessage?): Boolean {
                 consoleMessage?.let {
                     println("WebView Console: ${it.message()}")
                 }
                 return true
             }
         }
+    
+        // ОТКЛЮЧАЕМ ЖЕСТЫ ОБНОВЛЕНИЯ
+        webView.setOnTouchListener { _, event ->
+            // Блокируем свайп вниз когда страница в самом верху
+            if (event.action == android.view.MotionEvent.ACTION_MOVE && webView.scrollY == 0) {
+                return@setOnTouchListener true
+            }
+            false
+        }
     }
     
     private fun setupSwipeRefresh() {
-        swipeRefresh.setOnRefreshListener {
-            webView.reload()
-        }
+        // ОТКЛЮЧАЕМ SwipeRefresh полностью
+        swipeRefresh.isEnabled = false
         
-        swipeRefresh.setColorSchemeResources(
-            android.R.color.holo_blue_bright,
-            android.R.color.holo_green_light,
-            android.R.color.holo_orange_light,
-            android.R.color.holo_red_light
-        )
+        // Убираем все обработчики
+        swipeRefresh.setOnRefreshListener(null)
+        
+        // Скрываем индикатор если он есть
+        swipeRefresh.isRefreshing = false
     }
     
     private fun loadGame() {
